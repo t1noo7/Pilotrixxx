@@ -1,0 +1,11 @@
+frontend/
+simulator/
+venv/
+node_modules/
+**/node_modules/
+.git/
+.env
+**/.env
+ml/models/
+ml/data/
+*.md

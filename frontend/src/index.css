@@ -1,0 +1,163 @@
+/* ============================================================
+   Pilotrix Dashboard — Design tokens
+   Hướng thiết kế: "phòng điều khiển" (control room) — nền tối,
+   dùng đúng bộ màu risk-level (safe/medium/dangerous) làm ngôn
+   ngữ thị giác xuyên suốt, vì đó là giá trị cốt lõi của sản phẩm.
+   ============================================================ */
+
+:root {
+    /* Surfaces */
+    --bg-app: #0b1220;
+    --bg-sidebar: #0a0f1a;
+    --bg-surface: #121a2b;
+    --bg-surface-raised: #172033;
+    --border-subtle: #1f2937;
+    --border-strong: #2a3548;
+
+    /* Text */
+    --text-primary: #e5e9f0;
+    --text-secondary: #8b93a7;
+    --text-muted: #5b6478;
+
+    /* Brand / accent — tín hiệu "dữ liệu sống" */
+    --accent: #3dd6c4;
+    --accent-dim: #1f7a70;
+
+    /* Risk levels — enum thực tế trong DB: safe / medium / dangerous */
+    --risk-safe: #34d399;
+    --risk-safe-bg: rgba(52, 211, 153, 0.12);
+    --risk-medium: #fbbf24;
+    --risk-medium-bg: rgba(251, 191, 36, 0.12);
+    --risk-dangerous: #f87171;
+    --risk-dangerous-bg: rgba(248, 113, 113, 0.12);
+
+    /* Type */
+    --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'IBM Plex Mono', 'SF Mono', monospace;
+
+    /* Layout */
+    --sidebar-width: 240px;
+    --radius: 10px;
+    --radius-sm: 6px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+    height: 100%;
+}
+
+body {
+    margin: 0;
+    font-family: var(--font-ui);
+    background: var(--bg-app);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+}
+
+button,
+input {
+    font-family: inherit;
+}
+
+a {
+    color: inherit;
+}
+
+::selection {
+    background: var(--accent-dim);
+}
+
+/* Focus visibility — accessibility, không bỏ outline hoàn toàn */
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* ---- Signature element: live pulse dot cho dữ liệu realtime ---- */
+.live-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 0 rgba(61, 214, 196, 0.6);
+    animation: live-pulse 2s infinite;
+}
+
+@keyframes live-pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(61, 214, 196, 0.5);
+    }
+    70% {
+        box-shadow: 0 0 0 8px rgba(61, 214, 196, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(61, 214, 196, 0);
+    }
+}
+
+/* ---- Risk badge — dùng chung mọi nơi hiển thị risk_level ---- */
+.risk-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.risk-badge--safe {
+    color: var(--risk-safe);
+    background: var(--risk-safe-bg);
+}
+
+.risk-badge--medium {
+    color: var(--risk-medium);
+    background: var(--risk-medium-bg);
+}
+
+.risk-badge--dangerous {
+    color: var(--risk-dangerous);
+    background: var(--risk-dangerous-bg);
+}
+
+/* ---- Generic card ---- */
+.card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    padding: 20px;
+}
+
+/* Card có dải màu trái theo risk level — dùng cho alert/trip rows */
+.card--risk-left {
+    border-left: 3px solid var(--border-strong);
+}
+
+.card--risk-left.is-safe {
+    border-left-color: var(--risk-safe);
+}
+
+.card--risk-left.is-medium {
+    border-left-color: var(--risk-medium);
+}
+
+.card--risk-left.is-dangerous {
+    border-left-color: var(--risk-dangerous);
+}
