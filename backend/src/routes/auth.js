@@ -1,5 +1,5 @@
 import express from 'express';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool } from '../db.js';
 import { verifyToken } from '../middleware/authMiddleware.js';
@@ -24,7 +24,6 @@ authRouter.post('/login', async (req, res) => {
         );
 
         if (result.rows.length === 0) {
-            // Không tiết lộ "user không tồn tại" vs "sai password" để tránh dò username
             return res.status(401).json({ error: 'Sai username hoặc password' });
         }
 
@@ -40,7 +39,6 @@ authRouter.post('/login', async (req, res) => {
             { expiresIn: '7d' }
         );
 
-        // Cập nhật last_login_at (không cần await chờ, không quan trọng nếu lỗi)
         pool.query(`UPDATE admins SET last_login_at = now() WHERE admin_id = $1`, [admin.admin_id])
             .catch((err) => console.error('[POST /auth/login] Update last_login_at failed:', err.message));
 
@@ -56,8 +54,6 @@ authRouter.post('/login', async (req, res) => {
 
 /**
  * GET /api/auth/me
- * Header: Authorization: Bearer <token>
- * Dùng để dashboard kiểm tra token còn hợp lệ không khi load lại trang.
  */
 authRouter.get('/me', verifyToken, (req, res) => {
     res.json({ admin: req.admin });

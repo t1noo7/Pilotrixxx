@@ -1,4 +1,9 @@
-import bcrypt from 'bcrypt';
+// scripts/hash-password.js
+// Cong cu tam thoi de tao password_hash cho tai khoan admin dau tien.
+// Chay: node scripts/hash-password.js "MatKhauCuaMay123"
+// Copy chuoi hash in ra, dan vao cau INSERT trong sql/001_create_admins.sql
+
+import bcrypt from 'bcryptjs';
 
 const plainPassword = process.argv[2];
 
