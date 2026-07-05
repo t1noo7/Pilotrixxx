@@ -69,15 +69,22 @@ tripsRouter.post('/start', async (req, res) => {
 
     const client = await pool.connect();
     try {
-        // 1. Tra vehicle theo device_ident
+        // 1. Tra vehicle theo device_ident - lay luon assigned_driver_id
+        //    (moi xe gan co dinh 1 tai xe, xem migration 002_assign_driver_to_vehicle.sql)
         const vehicleRes = await client.query(
-            'SELECT vehicle_id FROM vehicles WHERE device_ident = $1',
+            'SELECT vehicle_id, assigned_driver_id FROM vehicles WHERE device_ident = $1',
             [deviceIdent]
         );
         if (vehicleRes.rows.length === 0) {
             return res.status(404).json({ error: `Khong tim thay vehicle voi device_ident = ${deviceIdent}` });
         }
         const vehicleId = vehicleRes.rows[0].vehicle_id;
+        const assignedDriverId = vehicleRes.rows[0].assigned_driver_id;
+        if (!assignedDriverId) {
+            return res.status(400).json({
+                error: `Vehicle ${vehicleId} chua duoc gan driver (assigned_driver_id NULL). Chay migration seed truoc.`,
+            });
+        }
 
         // 2. Validate: xe nay dang co trip 'ongoing' chua?
         const ongoingRes = await client.query(
@@ -90,13 +97,8 @@ tripsRouter.post('/start', async (req, res) => {
             });
         }
 
-        // 3. Gan driver - tam thoi lay driver dau tien (TODO: logic chon driver
-        //    cu the hon co the bo sung sau, vd round-robin hoac chi dinh tu request)
-        const driverRes = await client.query('SELECT driver_id FROM drivers ORDER BY driver_id LIMIT 1');
-        if (driverRes.rows.length === 0) {
-            return res.status(500).json({ error: 'Chua co driver nao trong DB. Hay seed bang drivers truoc.' });
-        }
-        const driverId = driverRes.rows[0].driver_id;
+        // 3. Driver = assigned_driver_id cua chinh xe nay (da lay o buoc 1)
+        const driverId = assignedDriverId;
 
         // 4. INSERT trip moi
         const tripRes = await client.query(

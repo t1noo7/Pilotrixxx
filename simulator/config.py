@@ -1,11 +1,3 @@
-"""
-Cau hinh chung cho IoT Simulator.
-Cac hang so o day duoc dat dua tren:
-- mqtt_payload_schema.md (cau truc payload, tan suat gui)
-- Tai lieu Flespi/Teltonika (khoang gia tri thuc te cho speed,
-  acceleration, gsm signal, battery...)
-"""
-
 import os
 from dotenv import load_dotenv
 
