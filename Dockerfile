@@ -7,16 +7,21 @@
 
 FROM node:20-slim
 
-# --- Cai Python3 + venv (Debian slim khong co san) ---
+# --- Cai ca-certificates (can cho HTTPS - npm/pip tai package) ---
+# va Python3 + venv (Debian slim khong co san) ---
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-venv python3-pip \
+    ca-certificates python3 python3-venv python3-pip \
     && rm -rf /var/lib/apt/lists/*
+
+# --- Cai pnpm ban 10.x qua npm (pnpm 11+ yeu cau Node 22+, khong khop
+# voi node:20-slim dang dung - ghim ban 10 cho dong bo voi may dev local) ---
+RUN npm install -g pnpm@10
 
 WORKDIR /app
 
 # --- Cai dependency Node truoc (tan dung Docker layer cache) ---
 COPY backend/package.json backend/pnpm-lock.yaml ./backend/
-RUN corepack enable && cd backend && pnpm install --prod --frozen-lockfile
+RUN cd backend && pnpm install --prod --frozen-lockfile
 
 # --- Copy code that su ---
 COPY backend ./backend
