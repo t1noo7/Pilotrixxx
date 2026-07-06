@@ -22,20 +22,39 @@ function markerColor(vehicle) {
     return COLOR_BY_STATE.online_unknown;
 }
 
-// divIcon thay vì ảnh marker mặc định của Leaflet (hay lỗi path khi bundle) —
-// vẽ 1 chấm tròn màu + viền, đồng bộ với phong cách "control room" của app.
-function buildIcon(color, pulsing) {
+// divIcon vẽ 1 chiếc xe nhìn từ trên xuống (top-view), xoay theo `heading`
+// thật của xe (0° = hướng Bắc, đúng chuẩn la bàn GPS) — thay cho chấm tròn
+// tĩnh, nhìn trực quan và sống động hơn khi xe di chuyển trên map.
+function buildIcon(color, pulsing, heading = 0) {
+    const glow = pulsing ? `filter: drop-shadow(0 0 4px ${color}aa);` : '';
     return L.divIcon({
         className: '',
-        html: `<div style="
-            width: 16px; height: 16px; border-radius: 50%;
-            background: ${color}; border: 2px solid #0b1220;
-            box-shadow: 0 0 0 2px ${color}55;
-            ${pulsing ? 'animation: fleet-pulse 1.6s infinite;' : ''}
-        "></div>`,
-        iconSize: [16, 16],
-        iconAnchor: [8, 8],
-        popupAnchor: [0, -10],
+        html: `
+            <div style="width: 26px; height: 26px; transform: rotate(${heading}deg); transition: transform 0.4s linear; ${glow}">
+                <svg width="26" height="26" viewBox="0 0 26 26" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Than xe (nhin tu tren xuong), dau xe huong len tren = 0 do -->
+                    <path d="M13 2.5
+                             C15.8 2.5 17 5.2 17.4 8
+                             L18.2 15
+                             C18.5 17.5 17.8 19 16.6 20.2
+                             L16.6 22
+                             C16.6 22.9 15.9 23.5 15 23.5
+                             L11 23.5
+                             C10.1 23.5 9.4 22.9 9.4 22
+                             L9.4 20.2
+                             C8.2 19 7.5 17.5 7.8 15
+                             L8.6 8
+                             C9 5.2 10.2 2.5 13 2.5 Z"
+                        fill="${color}" stroke="#0b1220" stroke-width="1.1" />
+                    <!-- Kinh chan gio truoc -->
+                    <rect x="9.6" y="6.2" width="6.8" height="4.2" rx="1.2" fill="#0b1220" opacity="0.4" />
+                    <!-- Kinh chan gio sau -->
+                    <rect x="9.9" y="15.8" width="6.2" height="3.4" rx="1.1" fill="#0b1220" opacity="0.3" />
+                </svg>
+            </div>`,
+        iconSize: [26, 26],
+        iconAnchor: [13, 13],
+        popupAnchor: [0, -14],
     });
 }
 
@@ -86,6 +105,7 @@ export default function FleetMap() {
                         last_longitude: payload.longitude,
                         last_speed: payload.speed,
                         last_telemetry_at: payload.ts,
+                        heading: payload.heading,
                         status: 'online',
                     },
                 };
@@ -138,7 +158,7 @@ export default function FleetMap() {
                                 <Marker
                                     key={v.vehicle_id}
                                     position={[v.last_latitude, v.last_longitude]}
-                                    icon={buildIcon(color, v.status === 'online')}
+                                    icon={buildIcon(color, v.status === 'online', v.heading || 0)}
                                 >
                                     <Popup>
                                         <div style={{ fontFamily: 'var(--font-ui)', minWidth: 160 }}>
