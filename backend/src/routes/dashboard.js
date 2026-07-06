@@ -1,7 +1,12 @@
 import express from 'express';
 import { pool } from '../db.js';
 
+// Tach thanh 3 router rieng (thay vi 1 router dung chung mount o 3 tien to
+// khac nhau) - fix bug path bi lap doi (vd /api/risk-scores/risk-scores/compute)
+// do route ben trong da co san tien to trung voi mount prefix.
 export const dashboardRouter = express.Router();
+export const riskScoresRouter = express.Router();
+export const telemetryLiveRouter = express.Router();
 
 /**
  * GET /api/dashboard/fleet-status
@@ -46,7 +51,6 @@ dashboardRouter.get('/fleet-status', async (req, res) => {
 dashboardRouter.get('/stats', async (req, res) => {
     try {
         const [tripsRes, alertsRes, riskRes, vehiclesRes] = await Promise.all([
-            // Tổng trips + breakdown theo status
             pool.query(`
                 SELECT
                     COUNT(*)                                              AS total_trips,
@@ -54,7 +58,6 @@ dashboardRouter.get('/stats', async (req, res) => {
                     COUNT(CASE WHEN status = 'completed' THEN 1 END)     AS completed_trips
                 FROM trips
             `),
-            // Tổng alerts + unread
             pool.query(`
                 SELECT
                     COUNT(*)                                          AS total_alerts,
@@ -65,7 +68,6 @@ dashboardRouter.get('/stats', async (req, res) => {
                     COUNT(CASE WHEN event_type = 'sharp_turn'   THEN 1 END) AS sharp_turn_count
                 FROM alerts
             `),
-            // Phân bố risk level
             pool.query(`
                 SELECT
                     COUNT(CASE WHEN final_risk_level = 'safe'      THEN 1 END) AS safe_count,
@@ -74,7 +76,6 @@ dashboardRouter.get('/stats', async (req, res) => {
                     ROUND(AVG(final_risk_score)::numeric, 3)                   AS avg_risk_score
                 FROM risk_scores
             `),
-            // Xe đang online
             pool.query(`
                 SELECT COUNT(DISTINCT vehicle_id) AS online_vehicles
                 FROM trips WHERE status = 'ongoing'
@@ -96,14 +97,12 @@ dashboardRouter.get('/stats', async (req, res) => {
 /**
  * GET /api/telemetry/live/:vehicleId
  * 20 điểm telemetry gần nhất của xe đang chạy (nghiệp vụ)
- * Dùng cho Dashboard vẽ đường đi realtime trên Leaflet
  */
-dashboardRouter.get('/telemetry/live/:vehicleId', async (req, res) => {
+telemetryLiveRouter.get('/:vehicleId', async (req, res) => {
     const vehicleId = parseInt(req.params.vehicleId, 10);
     if (Number.isNaN(vehicleId)) return res.status(400).json({ error: 'vehicleId không hợp lệ' });
 
     try {
-        // Lấy trip ongoing của xe này
         const tripRes = await pool.query(
             `SELECT trip_id FROM trips WHERE vehicle_id = $1 AND status = 'ongoing' LIMIT 1`,
             [vehicleId]
@@ -127,10 +126,10 @@ dashboardRouter.get('/telemetry/live/:vehicleId', async (req, res) => {
         res.json({
             vehicleId,
             tripId,
-            points: result.rows.reverse(), // chronological order
+            points: result.rows.reverse(),
         });
     } catch (err) {
-        console.error('[GET /dashboard/telemetry/live/:vehicleId] Error:', err.message);
+        console.error('[GET /telemetry/live/:vehicleId] Error:', err.message);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
@@ -138,9 +137,8 @@ dashboardRouter.get('/telemetry/live/:vehicleId', async (req, res) => {
 /**
  * GET /api/risk-scores
  * Danh sách risk scores, filter theo driverId/vehicleId (nghiệp vụ)
- * Query params: driverId, vehicleId, limit (default 20)
  */
-dashboardRouter.get('/risk-scores', async (req, res) => {
+riskScoresRouter.get('/', async (req, res) => {
     const { driverId, vehicleId, limit } = req.query;
     const _limit = Math.min(parseInt(limit) || 20, 100);
 
@@ -183,11 +181,10 @@ dashboardRouter.get('/risk-scores', async (req, res) => {
  * Trigger tính risk score thủ công cho 1 trip (nghiệp vụ)
  * Body: { tripId }
  */
-dashboardRouter.post('/risk-scores/compute', async (req, res) => {
+riskScoresRouter.post('/compute', async (req, res) => {
     const { tripId } = req.body;
     if (!tripId) return res.status(400).json({ error: 'tripId là bắt buộc' });
 
-    // Import động để tránh circular dependency
     const { execFile } = await import('child_process');
     const { fileURLToPath } = await import('url');
     const path = await import('path');
@@ -198,17 +195,20 @@ dashboardRouter.post('/risk-scores/compute', async (req, res) => {
 
     try {
         const result = await new Promise((resolve, reject) => {
-            execFile(PYTHON, [PREDICT_PY, String(tripId)], { timeout: 30_000 }, (err, stdout) => {
-                if (err) return reject(err);
+            execFile(PYTHON, [PREDICT_PY, String(tripId)], { timeout: 30_000 }, (err, stdout, stderr) => {
+                if (err) {
+                    err.stderrOutput = stderr; // giu lai stderr day du de tra ve cho client debug
+                    return reject(err);
+                }
                 try { resolve(JSON.parse(stdout.trim())); }
-                catch { reject(new Error('JSON parse fail')); }
+                catch { reject(new Error('JSON parse fail: ' + stdout)); }
             });
         });
 
         if (result.error) return res.status(400).json({ error: result.error });
         res.json(result);
     } catch (err) {
-        console.error('[POST /risk-scores/compute] Error:', err.message);
-        res.status(500).json({ error: err.message });
+        console.error('[POST /risk-scores/compute] Error:', err.stderrOutput || err.message);
+        res.status(500).json({ error: err.message, stderr: err.stderrOutput || null });
     }
 });

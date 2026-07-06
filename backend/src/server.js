@@ -11,7 +11,7 @@ import { tripsRouter } from './routes/trips.js';
 import { vehiclesRouter } from './routes/vehicles.js';
 import { driversRouter } from './routes/drivers.js';
 import { alertsRouter } from './routes/alerts.js';
-import { dashboardRouter } from './routes/dashboard.js';
+import { dashboardRouter, riskScoresRouter, telemetryLiveRouter } from './routes/dashboard.js';
 import { authRouter } from './routes/auth.js';
 import { verifyToken } from './middleware/authMiddleware.js';
 
@@ -74,9 +74,8 @@ app.use('/api/vehicles',  verifyToken, vehiclesRouter);
 app.use('/api/drivers',   verifyToken, driversRouter);
 app.use('/api/alerts',    verifyToken, alertsRouter);
 app.use('/api/dashboard', verifyToken, dashboardRouter);
-// Các endpoint /api/risk-scores và /api/telemetry/live mount vào dashboardRouter
-app.use('/api/risk-scores',        verifyToken, dashboardRouter);
-app.use('/api/telemetry/live',     verifyToken, dashboardRouter);
+app.use('/api/risk-scores',    verifyToken, riskScoresRouter);
+app.use('/api/telemetry/live', verifyToken, telemetryLiveRouter);
 
 const PORT = process.env.PORT || 3000;
 

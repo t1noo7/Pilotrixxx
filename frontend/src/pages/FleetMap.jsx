@@ -22,39 +22,54 @@ function markerColor(vehicle) {
     return COLOR_BY_STATE.online_unknown;
 }
 
-// divIcon vẽ 1 chiếc xe nhìn từ trên xuống (top-view), xoay theo `heading`
-// thật của xe (0° = hướng Bắc, đúng chuẩn la bàn GPS) — thay cho chấm tròn
-// tĩnh, nhìn trực quan và sống động hơn khi xe di chuyển trên map.
+// divIcon vẽ 1 chiếc xe kiểu "cute/đồ chơi" nhìn từ trên xuống (theo mẫu
+// tham khảo): thân bo tròn, kính xanh (kính trước/sau + 2 kính hông), đèn
+// báo rẽ màu cam ở 4 góc, bánh xe đen lồi ra 2 bên, bảng số/cảm biến xám
+// ở đầu và đuôi xe. Xoay theo `heading` thật (0° = hướng Bắc).
 function buildIcon(color, pulsing, heading = 0) {
-    const glow = pulsing ? `filter: drop-shadow(0 0 4px ${color}aa);` : '';
+    const glow = pulsing ? `filter: drop-shadow(0 1px 3px rgba(0,0,0,0.5)) drop-shadow(0 0 5px ${color}99);` : 'filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));';
     return L.divIcon({
         className: '',
         html: `
-            <div style="width: 26px; height: 26px; transform: rotate(${heading}deg); transition: transform 0.4s linear; ${glow}">
-                <svg width="26" height="26" viewBox="0 0 26 26" xmlns="http://www.w3.org/2000/svg">
-                    <!-- Than xe (nhin tu tren xuong), dau xe huong len tren = 0 do -->
-                    <path d="M13 2.5
-                             C15.8 2.5 17 5.2 17.4 8
-                             L18.2 15
-                             C18.5 17.5 17.8 19 16.6 20.2
-                             L16.6 22
-                             C16.6 22.9 15.9 23.5 15 23.5
-                             L11 23.5
-                             C10.1 23.5 9.4 22.9 9.4 22
-                             L9.4 20.2
-                             C8.2 19 7.5 17.5 7.8 15
-                             L8.6 8
-                             C9 5.2 10.2 2.5 13 2.5 Z"
-                        fill="${color}" stroke="#0b1220" stroke-width="1.1" />
+            <div style="width: 26px; height: 39px; transform: rotate(${heading}deg); transition: transform 0.4s linear; ${glow}">
+                <svg width="26" height="39" viewBox="0 0 100 150" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Banh xe (den, lo ra 2 ben, ve truoc de nam duoi than xe) -->
+                    <rect x="10" y="28" width="11" height="24" rx="4.5" fill="#15181f" />
+                    <rect x="79" y="28" width="11" height="24" rx="4.5" fill="#15181f" />
+                    <rect x="10" y="98" width="11" height="24" rx="4.5" fill="#15181f" />
+                    <rect x="79" y="98" width="11" height="24" rx="4.5" fill="#15181f" />
+
+                    <!-- Than xe: hinh chu nhat bo tron manh -->
+                    <rect x="20" y="8" width="60" height="134" rx="27" fill="${color}" stroke="#0b1220" stroke-width="2.2" />
+
+                    <!-- Bang cam bien / bien so o dau xe -->
+                    <rect x="43" y="9" width="14" height="6" rx="3" fill="#c9ccd1" />
+                    <!-- Den bao re truoc (cam) -->
+                    <rect x="25" y="16" width="9" height="5.5" rx="2.5" fill="#ffb020" />
+                    <rect x="66" y="16" width="9" height="5.5" rx="2.5" fill="#ffb020" />
+
                     <!-- Kinh chan gio truoc -->
-                    <rect x="9.6" y="6.2" width="6.8" height="4.2" rx="1.2" fill="#0b1220" opacity="0.4" />
+                    <path d="M32 32 L68 32 L64 53 L36 53 Z" fill="#8fd0f4" stroke="#5aa8d6" stroke-width="0.8" />
+                    <!-- Anh sang phan chieu tren kinh truoc -->
+                    <path d="M37 34 L47 34 L40 48 L35 48 Z" fill="#c9ecfb" opacity="0.6" />
+
+                    <!-- Kinh hong trai/phai -->
+                    <rect x="19" y="60" width="11" height="30" rx="4" fill="#8fd0f4" stroke="#5aa8d6" stroke-width="0.8" />
+                    <rect x="70" y="60" width="11" height="30" rx="4" fill="#8fd0f4" stroke="#5aa8d6" stroke-width="0.8" />
+
                     <!-- Kinh chan gio sau -->
-                    <rect x="9.9" y="15.8" width="6.2" height="3.4" rx="1.1" fill="#0b1220" opacity="0.3" />
+                    <path d="M35 98 L65 98 L69 118 L31 118 Z" fill="#8fd0f4" stroke="#5aa8d6" stroke-width="0.8" />
+
+                    <!-- Den hau (cam) -->
+                    <rect x="25" y="128" width="9" height="5.5" rx="2.5" fill="#ffb020" />
+                    <rect x="66" y="128" width="9" height="5.5" rx="2.5" fill="#ffb020" />
+                    <!-- Bien so sau -->
+                    <rect x="43" y="135" width="14" height="6" rx="3" fill="#c9ccd1" />
                 </svg>
             </div>`,
-        iconSize: [26, 26],
-        iconAnchor: [13, 13],
-        popupAnchor: [0, -14],
+        iconSize: [26, 39],
+        iconAnchor: [13, 19.5],
+        popupAnchor: [0, -21],
     });
 }
 
