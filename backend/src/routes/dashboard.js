@@ -197,7 +197,10 @@ riskScoresRouter.post('/compute', async (req, res) => {
         const result = await new Promise((resolve, reject) => {
             execFile(PYTHON, [PREDICT_PY, String(tripId)], { timeout: 30_000 }, (err, stdout, stderr) => {
                 if (err) {
-                    err.stderrOutput = stderr; // giu lai stderr day du de tra ve cho client debug
+                    // predict.py in loi JSON ra STDOUT (khong phai stderr) truoc khi
+                    // sys.exit(1/2) - phai doc ca stdout thi moi thay duoc loi that.
+                    err.stdoutOutput = stdout;
+                    err.stderrOutput = stderr;
                     return reject(err);
                 }
                 try { resolve(JSON.parse(stdout.trim())); }
@@ -208,11 +211,17 @@ riskScoresRouter.post('/compute', async (req, res) => {
         if (result.error) return res.status(400).json({ error: result.error });
         res.json(result);
     } catch (err) {
-        console.error('[POST /risk-scores/compute] Error:', err.stderrOutput || err.message);
+        // Uu tien doc loi that tu stdout cua predict.py (JSON {"error": "..."})
+        let predictError = null;
+        if (err.stdoutOutput) {
+            try { predictError = JSON.parse(err.stdoutOutput.trim()).error; } catch { /* stdout khong phai JSON hop le */ }
+        }
+        console.error('[POST /risk-scores/compute] Error:', predictError || err.stderrOutput || err.message);
         res.status(500).json({
-            error: err.message,
+            error: predictError || err.message,
+            stdout: err.stdoutOutput || null,
             stderr: err.stderrOutput || null,
-            signal: err.signal || null, // SIGKILL = het RAM, SIGTERM = bi kill do timeout
+            signal: err.signal || null,
             killed: err.killed ?? null,
             exitCode: err.code ?? null,
         });

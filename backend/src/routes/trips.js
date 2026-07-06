@@ -20,7 +20,16 @@ function runMlPredict(tripId) {
     return new Promise((resolve) => {
         execFile(PYTHON, [PREDICT_PY, String(tripId)], { timeout: 30_000 }, (err, stdout, stderr) => {
             if (err) {
-                console.error(`[ml-predict] Trip ${tripId} exit ${err.code}:`, stderr || err.message);
+                // predict.py in loi JSON ra STDOUT (khong phai stderr) truoc khi
+                // sys.exit(1/2) - phai doc ca stdout thi moi thay duoc loi that.
+                let predictError = null;
+                if (stdout) {
+                    try { predictError = JSON.parse(stdout.trim()).error; } catch { /* stdout khong phai JSON */ }
+                }
+                console.error(
+                    `[ml-predict] Trip ${tripId} exit ${err.code} (signal=${err.signal || 'none'}):`,
+                    predictError || stderr || err.message
+                );
                 resolve(null);
                 return;
             }
