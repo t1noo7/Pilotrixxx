@@ -209,6 +209,12 @@ riskScoresRouter.post('/compute', async (req, res) => {
         res.json(result);
     } catch (err) {
         console.error('[POST /risk-scores/compute] Error:', err.stderrOutput || err.message);
-        res.status(500).json({ error: err.message, stderr: err.stderrOutput || null });
+        res.status(500).json({
+            error: err.message,
+            stderr: err.stderrOutput || null,
+            signal: err.signal || null, // SIGKILL = het RAM, SIGTERM = bi kill do timeout
+            killed: err.killed ?? null,
+            exitCode: err.code ?? null,
+        });
     }
 });
