@@ -34,7 +34,7 @@ authRouter.post('/login', async (req, res) => {
         }
 
         const token = jwt.sign(
-            { adminId: admin.admin_id, username: admin.username },
+            { role: 'admin', adminId: admin.admin_id, username: admin.username },
             process.env.JWT_SECRET,
             { expiresIn: '7d' }
         );

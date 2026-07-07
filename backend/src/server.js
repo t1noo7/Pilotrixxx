@@ -14,6 +14,7 @@ import { alertsRouter } from './routes/alerts.js';
 import { dashboardRouter, riskScoresRouter, telemetryLiveRouter } from './routes/dashboard.js';
 import { authRouter } from './routes/auth.js';
 import { verifyToken } from './middleware/authMiddleware.js';
+import { driverAuthRouter } from './routes/driverAuth.js';
 
 dotenv.config();
 
@@ -62,6 +63,7 @@ app.get('/health', (req, res) => {
 
 // /api/auth không cần token (chính nó là nơi cấp token)
 app.use('/api/auth', authRouter);
+app.use('/api/driver-auth', driverAuthRouter);
 
 // /api/trips KHÔNG yêu cầu admin token: đây là route được IoT Simulator /
 // thiết bị trên xe gọi trực tiếp (start/end trip), không phải người dùng
