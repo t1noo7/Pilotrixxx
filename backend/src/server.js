@@ -42,6 +42,9 @@ io.use((socket, next) => {
 
     try {
         const payload = jwt.verify(token, process.env.JWT_SECRET);
+        if (payload.role !== 'admin') {
+            return next(new Error('Chỉ admin mới được kết nối Socket.IO'));
+        }
         socket.admin = { adminId: payload.adminId, username: payload.username };
         next();
     } catch (err) {
