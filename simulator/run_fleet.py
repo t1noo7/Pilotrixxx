@@ -7,19 +7,24 @@ da neu trong mqtt_payload_schema.md.
 
 Cach chay:
     python run_fleet.py
-(can co toi thieu 3 vehicle voi device_ident tuong ung da seed trong DB
-- xem backend/seed.sql)
+(can co du 7 vehicle voi device_ident tuong ung da seed trong DB - xem
+migration sql/003_add_4_more_vehicles.sql)
 """
 
 import threading
 
 from simulator import run_simulation
 
-# Danh sach xe + kich ban - khop voi seed.sql (3 vehicle mau)
+# Danh sach xe + kich ban - khop voi migration 003_add_4_more_vehicles.sql
+# (7 xe: 3 xe goc + 4 xe them de hien du 7 loai icon tren FleetMap)
 FLEET = [
-    {"device": "865413056621001", "scenario": "safe"},
-    {"device": "865413056621002", "scenario": "moderate"},
-    {"device": "865413056621003", "scenario": "dangerous"},
+    {"device": "865413056621001", "scenario": "safe"},       # sedan
+    {"device": "865413056621002", "scenario": "moderate"},   # xe tai
+    {"device": "865413056621003", "scenario": "dangerous"},  # xe dua
+    {"device": "865413056621004", "scenario": "safe"},       # limousine
+    {"device": "865413056621005", "scenario": "moderate"},   # xe buyt
+    {"device": "865413056621006", "scenario": "dangerous"},  # xe cong nong
+    {"device": "865413056621007", "scenario": "moderate"},   # xe vit vang
 ]
 
 
