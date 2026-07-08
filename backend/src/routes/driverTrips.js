@@ -2,6 +2,7 @@ import express from 'express';
 import { pool } from '../db.js';
 import { generateTripSummary } from '../services/tripSummaryService.js';
 import { runMlPredict } from './trips.js';
+import { handleTelemetryMessage } from '../services/telemetryService.js';
 
 export const driverTripsRouter = express.Router();
 
@@ -92,6 +93,67 @@ driverTripsRouter.post('/trips/start', async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     } finally {
         client.release();
+    }
+});
+
+/**
+ * POST /api/driver/trips/:id/telemetry
+ * Body: { latitude, longitude, speed, heading, accuracy?, timestamp? }
+ * App di động gọi định kỳ (vd mỗi 5-10s) trong lúc chạy trip để cập nhật
+ * vị trí realtime lên bản đồ - dùng lại NGUYÊN VẸN logic xử lý telemetry
+ * hiện có (insert telemetry_raw, update vehicles.last_*, emit Socket.IO,
+ * chạy Rule Engine) thay vì viết lại, chỉ khác nguồn vào là HTTP thay vì MQTT.
+ *
+ * Không nhận vehicleId từ body - tự tra theo tripId + driver token để
+ * đảm bảo driver không thể giả mạo gửi telemetry cho trip không phải của mình.
+ */
+driverTripsRouter.post('/trips/:id/telemetry', async (req, res) => {
+    const tripId = parseInt(req.params.id, 10);
+    if (Number.isNaN(tripId)) return res.status(400).json({ error: 'tripId không hợp lệ' });
+
+    const { latitude, longitude, speed, heading, accuracy, timestamp } = req.body;
+    if (latitude === undefined || longitude === undefined) {
+        return res.status(400).json({ error: 'latitude và longitude là bắt buộc' });
+    }
+
+    try {
+        const tripRes = await pool.query(
+            `SELECT vehicle_id FROM trips
+             WHERE trip_id = $1 AND driver_id = $2 AND status = 'ongoing'`,
+            [tripId, req.driver.driverId]
+        );
+        if (tripRes.rows.length === 0) {
+            return res.status(404).json({ error: `Trip #${tripId} không tồn tại, không thuộc về bạn, hoặc đã kết thúc` });
+        }
+        const vehicleId = tripRes.rows[0].vehicle_id;
+
+        await handleTelemetryMessage('http', {
+            vehicleId,
+            tripId,
+            ts: timestamp || new Date().toISOString(),
+            position: {
+                latitude,
+                longitude,
+                valid: true,
+                satellites: null,
+                speed: speed ?? null,
+                speedLimit: null,
+                heading: heading ?? null,
+            },
+            // GPS điện thoại không đo được gia tốc/phanh như thiết bị IoT chuyên
+            // dụng - để undefined, handleTelemetryMessage tự ghi null cho các
+            // cột này (không lỗi, chỉ thiếu tín hiệu cho Rule Engine hard-brake/
+            // rapid-accel; overspeed vẫn phát hiện được nhờ có speed).
+            acceleration: undefined,
+            brakeIntensity: undefined,
+            engine: undefined,
+            device: { batteryLevel: null, gsmSignal: null, accuracy: accuracy ?? null },
+        });
+
+        res.status(202).json({ received: true });
+    } catch (err) {
+        console.error('[POST /driver/trips/:id/telemetry] Error:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
