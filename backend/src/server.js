@@ -13,8 +13,9 @@ import { driversRouter } from './routes/drivers.js';
 import { alertsRouter } from './routes/alerts.js';
 import { dashboardRouter, riskScoresRouter, telemetryLiveRouter } from './routes/dashboard.js';
 import { authRouter } from './routes/auth.js';
-import { verifyToken } from './middleware/authMiddleware.js';
+import { verifyToken, verifyDriverToken } from './middleware/authMiddleware.js';
 import { driverAuthRouter } from './routes/driverAuth.js';
+import { driverTripsRouter } from './routes/driverTrips.js';
 
 dotenv.config();
 
@@ -68,6 +69,11 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRouter);
 app.use('/api/driver-auth', driverAuthRouter);
 
+// /api/driver - các route nghiệp vụ mobile app dùng (chọn xe, start/end
+// trip, lịch sử) -> yêu cầu verifyDriverToken. Tách hẳn khỏi /api/trips
+// (dành cho IoT Simulator/thiết bị) để 2 luồng độc lập nhau.
+app.use('/api/driver', verifyDriverToken, driverTripsRouter);
+
 // /api/trips KHÔNG yêu cầu admin token: đây là route được IoT Simulator /
 // thiết bị trên xe gọi trực tiếp (start/end trip), không phải người dùng
 // đăng nhập qua dashboard. Nếu sau này cần bảo mật hơn, nên xác thực bằng
@@ -75,11 +81,11 @@ app.use('/api/driver-auth', driverAuthRouter);
 app.use('/api/trips', tripsRouter);
 
 // Các route còn lại là nghiệp vụ CHỈ dashboard admin dùng -> yêu cầu verifyToken
-app.use('/api/vehicles',  verifyToken, vehiclesRouter);
-app.use('/api/drivers',   verifyToken, driversRouter);
-app.use('/api/alerts',    verifyToken, alertsRouter);
+app.use('/api/vehicles', verifyToken, vehiclesRouter);
+app.use('/api/drivers', verifyToken, driversRouter);
+app.use('/api/alerts', verifyToken, alertsRouter);
 app.use('/api/dashboard', verifyToken, dashboardRouter);
-app.use('/api/risk-scores',    verifyToken, riskScoresRouter);
+app.use('/api/risk-scores', verifyToken, riskScoresRouter);
 app.use('/api/telemetry/live', verifyToken, telemetryLiveRouter);
 
 const PORT = process.env.PORT || 3000;
