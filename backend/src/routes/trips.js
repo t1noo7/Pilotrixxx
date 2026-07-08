@@ -16,7 +16,7 @@ const PYTHON = path.resolve(__dirname, '..', '..', '..', 'venv', 'bin', 'python'
  * Luôn resolve (không bao giờ reject) - lỗi được log, caller nhận null.
  * Timeout 30s phòng predict.py treo vì DB chậm / model lớn.
  */
-function runMlPredict(tripId) {
+export function runMlPredict(tripId) {
     return new Promise((resolve) => {
         execFile(PYTHON, [PREDICT_PY, String(tripId)], { timeout: 30_000 }, (err, stdout, stderr) => {
             if (err) {
@@ -206,9 +206,9 @@ tripsRouter.get('/', async (req, res) => {
     const values = [];
     let idx = 1;
 
-    if (driverId)  { conditions.push(`t.driver_id = $${idx++}`);   values.push(parseInt(driverId)); }
-    if (vehicleId) { conditions.push(`t.vehicle_id = $${idx++}`);  values.push(parseInt(vehicleId)); }
-    if (status)    { conditions.push(`t.status = $${idx++}`);      values.push(status); }
+    if (driverId) { conditions.push(`t.driver_id = $${idx++}`); values.push(parseInt(driverId)); }
+    if (vehicleId) { conditions.push(`t.vehicle_id = $${idx++}`); values.push(parseInt(vehicleId)); }
+    if (status) { conditions.push(`t.status = $${idx++}`); values.push(status); }
     values.push(_limit);
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
