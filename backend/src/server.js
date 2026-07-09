@@ -16,6 +16,8 @@ import { authRouter } from './routes/auth.js';
 import { verifyToken, verifyDriverToken } from './middleware/authMiddleware.js';
 import { driverAuthRouter } from './routes/driverAuth.js';
 import { driverTripsRouter } from './routes/driverTrips.js';
+import dns from 'dns';
+dns.setDefaultResultOrder('ipv4first');
 
 dotenv.config();
 
