@@ -1,11 +1,11 @@
 import { Redirect, Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../src/context/AuthContext";
+import { TripProvider, useTrip } from "../../src/context/TripContext";
 
-export default function AppLayout() {
-  const { driver, isLoading } = useAuth();
-  if (isLoading) return null;
-  if (!driver) return <Redirect href="/(auth)/login" />;
+function AppTabs() {
+  const { ongoingTrip } = useTrip();
+  const hasOngoing = !!ongoingTrip;
 
   return (
     <Tabs
@@ -18,10 +18,18 @@ export default function AppLayout() {
       <Tabs.Screen
         name="vehicles"
         options={{
-          title: "Chọn xe",
+          title: hasOngoing ? "Đang chạy" : "Chọn xe",
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
-              name={focused ? "car-sport" : "car-sport-outline"}
+              name={
+                hasOngoing
+                  ? focused
+                    ? "navigate"
+                    : "navigate-outline"
+                  : focused
+                    ? "car-sport"
+                    : "car-sport-outline"
+              }
               size={size}
               color={color}
             />
@@ -57,5 +65,17 @@ export default function AppLayout() {
       <Tabs.Screen name="trip/[id]" options={{ href: null }} />
       {/* href: null - ẩn khỏi tab bar, chỉ vào bằng router.push từ vehicles.tsx */}
     </Tabs>
+  );
+}
+
+export default function AppLayout() {
+  const { driver, isLoading } = useAuth();
+  if (isLoading) return null;
+  if (!driver) return <Redirect href="/(auth)/login" />;
+
+  return (
+    <TripProvider>
+      <AppTabs />
+    </TripProvider>
   );
 }

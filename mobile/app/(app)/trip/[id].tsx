@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { sendTelemetry, endTrip } from "../../../src/api/driverTrips";
 import LoadingOverlay from "../../../src/components/LoadingOverlay";
 import VehicleIcon from "../../../src/components/VehicleIcon";
+import { useTrip } from "../../../src/context/TripContext";
 import type { RiskScore, VehicleType } from "../../../src/types";
 
 const TELEMETRY_INTERVAL_MS = 8000;
@@ -31,12 +32,15 @@ const RISK_LABEL: Record<string, string> = {
 };
 
 export default function TripScreen() {
-  const { id: tripId, vehicleType: vehicleTypeParam } = useLocalSearchParams<{
-    id: string;
-    vehicleType?: string;
-  }>();
+  const { id: tripId, vehicleType: vehicleTypeParam, startedAt } =
+    useLocalSearchParams<{
+      id: string;
+      vehicleType?: string;
+      startedAt?: string;
+    }>();
   const vehicleType: VehicleType =
     (vehicleTypeParam as VehicleType) || "sedan";
+  const { clearOngoingTrip } = useTrip();
 
   const [permissionGranted, setPermissionGranted] = useState<boolean | null>(
     null,
@@ -44,13 +48,18 @@ export default function TripScreen() {
   const [region, setRegion] = useState<Region | null>(null);
   const [speed, setSpeed] = useState<number | null>(null);
   const [heading, setHeading] = useState<number>(0);
+  const [trackViewChanges, setTrackViewChanges] = useState(true);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [ending, setEnding] = useState(false);
   const [result, setResult] = useState<{
     riskScore: RiskScore | null;
   } | null>(null);
 
-  const startTimeRef = useRef(Date.now());
+  const startTimeRef = useRef(
+    startedAt && !Number.isNaN(new Date(startedAt).getTime())
+      ? new Date(startedAt).getTime()
+      : Date.now(),
+  );
   const watchSubRef = useRef<Location.LocationSubscription | null>(null);
   const lastCoordsRef = useRef<{
     latitude: number;
@@ -99,7 +108,15 @@ export default function TripScreen() {
             accuracy,
           };
           setSpeed(spd);
-          if (heading != null && !Number.isNaN(heading)) {
+          // Heading GPS không đáng tin khi gần đứng yên (dưới ~1.5 km/h) -
+          // bỏ qua để tránh đầu xe quay loạn xạ, giữ nguyên hướng cũ.
+          const MIN_SPEED_FOR_HEADING = 0.4; // m/s ~ 1.5 km/h
+          if (
+            heading != null &&
+            !Number.isNaN(heading) &&
+            spd != null &&
+            spd > MIN_SPEED_FOR_HEADING
+          ) {
             setHeading(heading);
           }
           setRegion((prev) => ({
@@ -125,6 +142,15 @@ export default function TripScreen() {
     return () => {
       if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
     };
+  }, []);
+
+  // Marker custom (SVG) chỉ cần "tracksViewChanges" đúng lần đầu để chụp
+  // đúng hình - sau đó TẮT ĐI, không thì mỗi lần rotation/coordinate đổi
+  // (mỗi 2s) thư viện lại vẽ lại bitmap marker -> giật khựng trên map.
+  // rotation/coordinate vẫn cập nhật mượt ở tầng native dù tắt cờ này.
+  useEffect(() => {
+    const t = setTimeout(() => setTrackViewChanges(false), 500);
+    return () => clearTimeout(t);
   }, []);
 
   // Gửi telemetry định kỳ lên backend
@@ -177,6 +203,7 @@ export default function TripScreen() {
           if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
           try {
             const res = await endTrip(tripId);
+            clearOngoingTrip();
             setResult({ riskScore: res.riskScore });
           } catch (err: any) {
             Alert.alert(
@@ -215,6 +242,7 @@ export default function TripScreen() {
           anchor={{ x: 0.5, y: 0.5 }}
           rotation={heading}
           flat
+          tracksViewChanges={trackViewChanges}
         >
           <VehicleIcon type={vehicleType} height={40} />
         </Marker>

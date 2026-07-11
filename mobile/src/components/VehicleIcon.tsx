@@ -129,7 +129,7 @@ const VEHICLE_SVG: Record<VehicleType, VehicleSvgDef> = {
       <rect x="36" y="183" width="18" height="6" rx="3" fill="#c9ccd1" />
     `,
   },
-  congnong: {
+  tractor: {
     viewBox: "0 0 100 175",
     body: `
       <rect x="12" y="120" width="12" height="24" rx="4" fill="#15181f" />
@@ -179,7 +179,7 @@ const VEHICLE_DISPLAY_SIZE: Record<VehicleType, [number, number]> = {
   racecar: [26, 41],
   limousine: [22, 46],
   bus: [22, 46],
-  congnong: [26, 44],
+  tractor: [26, 44],
   duck: [26, 36],
 };
 

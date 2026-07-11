@@ -10,7 +10,7 @@ export type VehicleType =
   | "racecar"
   | "limousine"
   | "bus"
-  | "congnong"
+  | "tractor"
   | "duck";
 
 export interface Vehicle {

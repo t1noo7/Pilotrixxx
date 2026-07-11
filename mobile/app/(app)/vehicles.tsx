@@ -10,16 +10,14 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import {
-  getAvailableVehicles,
-  getCurrentTrip,
-  startTrip,
-} from "../../src/api/driverTrips";
+import { getAvailableVehicles, startTrip } from "../../src/api/driverTrips";
 import LoadingOverlay from "../../src/components/LoadingOverlay";
 import VehicleIcon from "../../src/components/VehicleIcon";
+import { useTrip } from "../../src/context/TripContext";
 import type { Vehicle } from "../../src/types";
 
 export default function VehiclesScreen() {
+  const { refreshOngoingTrip } = useTrip();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -28,11 +26,15 @@ export default function VehiclesScreen() {
   const load = useCallback(async () => {
     try {
       // Check trip đang chạy trước - resume state nếu app từng bị tắt giữa chuyến
-      const current = await getCurrentTrip();
+      const current = await refreshOngoingTrip();
       if (current) {
         router.replace({
           pathname: "/(app)/trip/[id]",
-          params: { id: current.trip_id, vehicleType: current.vehicle_type },
+          params: {
+            id: current.trip_id,
+            vehicleType: current.vehicle_type,
+            startedAt: current.started_at,
+          },
         });
         return;
       }
@@ -53,7 +55,7 @@ export default function VehiclesScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [refreshOngoingTrip]);
 
   useEffect(() => {
     load();
@@ -68,9 +70,14 @@ export default function VehiclesScreen() {
     setStarting(true);
     try {
       const { tripId } = await startTrip(vehicle.vehicle_id);
+      await refreshOngoingTrip();
       router.push({
         pathname: "/(app)/trip/[id]",
-        params: { id: tripId, vehicleType: vehicle.vehicle_type },
+        params: {
+          id: tripId,
+          vehicleType: vehicle.vehicle_type,
+          startedAt: new Date().toISOString(),
+        },
       });
     } catch (err: any) {
       Alert.alert(
