@@ -25,9 +25,28 @@ driverAuthRouter.post('/register', async (req, res) => {
     }
 
     try {
-        const existing = await pool.query('SELECT driver_id FROM drivers WHERE email = $1', [email]);
+        const existing = await pool.query(
+            'SELECT driver_id, email_verified FROM drivers WHERE email = $1',
+            [email]
+        );
+
         if (existing.rows.length > 0) {
-            return res.status(409).json({ error: 'Email đã được đăng ký' });
+            if (existing.rows[0].email_verified) {
+                return res.status(409).json({ error: 'Email đã được đăng ký' });
+            }
+            // Email tồn tại nhưng chưa verify (khả năng cao do lần đăng ký
+            // trước gửi OTP thất bại) - coi như gửi lại OTP, không chặn cứng.
+            const passwordHash = await bcrypt.hash(password, 10);
+            const otp = generateOtp();
+            const otpExpiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60_000);
+            await pool.query(
+                `UPDATE drivers SET password_hash = $1, full_name = $2, phone_number = $3,
+                        license_number = $4, otp_code = $5, otp_expires_at = $6
+                 WHERE driver_id = $7`,
+                [passwordHash, fullName, phoneNumber || null, licenseNumber || null, otp, otpExpiresAt, existing.rows[0].driver_id]
+            );
+            await sendOtpEmail(email, otp);
+            return res.status(201).json({ email, message: 'Đã gửi mã OTP tới email, vui lòng xác thực' });
         }
 
         const passwordHash = await bcrypt.hash(password, 10);
@@ -39,7 +58,6 @@ driverAuthRouter.post('/register', async (req, res) => {
              VALUES ($1, $2, $3, $4, $5, false, $6, $7)`,
             [email, passwordHash, fullName, phoneNumber || null, licenseNumber || null, otp, otpExpiresAt]
         );
-
         await sendOtpEmail(email, otp);
 
         res.status(201).json({ email, message: 'Đã gửi mã OTP tới email, vui lòng xác thực' });

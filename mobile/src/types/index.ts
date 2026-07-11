@@ -1,0 +1,50 @@
+export interface Driver {
+  driverId: string;
+  email: string;
+  fullName: string;
+}
+
+export type VehicleType =
+  | "sedan"
+  | "truck"
+  | "racecar"
+  | "limousine"
+  | "bus"
+  | "congnong"
+  | "duck";
+
+export interface Vehicle {
+  vehicle_id: string;
+  license_plate: string;
+  model: string;
+  vehicle_type: VehicleType;
+  last_latitude: number | null;
+  last_longitude: number | null;
+}
+
+export interface CurrentTrip {
+  trip_id: string;
+  vehicle_id: string;
+  license_plate: string;
+  model: string;
+  vehicle_type: VehicleType;
+  started_at: string;
+  scenario: string;
+}
+
+export interface RiskScore {
+  final: { risk_score: number; risk_level: "safe" | "medium" | "dangerous" };
+}
+
+export interface TripHistoryItem {
+  trip_id: string;
+  status: string;
+  scenario: string;
+  started_at: string;
+  ended_at: string | null;
+  license_plate: string;
+  model: string;
+  vehicle_type: VehicleType;
+  final_risk_score: number | null;
+  final_risk_level: "safe" | "medium" | "dangerous" | null;
+}

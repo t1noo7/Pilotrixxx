@@ -13,7 +13,7 @@ export const driverTripsRouter = express.Router();
 driverTripsRouter.get('/vehicles/available', async (req, res) => {
     try {
         const result = await pool.query(`
-            SELECT v.vehicle_id, v.license_plate, v.model,
+            SELECT v.vehicle_id, v.license_plate, v.model, v.vehicle_type,
                    v.last_latitude, v.last_longitude
             FROM vehicles v
             WHERE NOT EXISTS (
@@ -38,7 +38,7 @@ driverTripsRouter.get('/trips/current', async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT t.trip_id, t.vehicle_id, t.started_at, t.scenario,
-                    v.license_plate, v.model
+                    v.license_plate, v.model, v.vehicle_type
              FROM trips t JOIN vehicles v ON v.vehicle_id = t.vehicle_id
              WHERE t.driver_id = $1 AND t.status = 'ongoing'`,
             [req.driver.driverId]
@@ -206,7 +206,7 @@ driverTripsRouter.get('/trips/history', async (req, res) => {
     try {
         const result = await pool.query(`
             SELECT t.trip_id, t.status, t.scenario, t.started_at, t.ended_at,
-                   v.license_plate, v.model,
+                   v.license_plate, v.model, v.vehicle_type,
                    rs.final_risk_score, rs.final_risk_level
             FROM trips t
             JOIN vehicles v ON v.vehicle_id = t.vehicle_id

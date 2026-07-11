@@ -17,7 +17,7 @@ dashboardRouter.get('/fleet-status', async (req, res) => {
     try {
         const result = await pool.query(`
             SELECT
-                v.vehicle_id, v.license_plate, v.model,
+                v.vehicle_id, v.license_plate, v.model, v.vehicle_type,
                 v.last_latitude, v.last_longitude, v.last_speed, v.last_telemetry_at,
                 -- Trip đang chạy
                 t.trip_id, t.started_at AS trip_started_at,
