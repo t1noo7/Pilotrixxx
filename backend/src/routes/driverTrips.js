@@ -111,7 +111,7 @@ driverTripsRouter.post('/trips/:id/telemetry', async (req, res) => {
     const tripId = parseInt(req.params.id, 10);
     if (Number.isNaN(tripId)) return res.status(400).json({ error: 'tripId không hợp lệ' });
 
-    const { latitude, longitude, speed, heading, accuracy, timestamp } = req.body;
+    const { latitude, longitude, speed, heading, accuracy, timestamp, accelX, accelY, brakeIntensity } = req.body;
     if (latitude === undefined || longitude === undefined) {
         return res.status(400).json({ error: 'latitude và longitude là bắt buộc' });
     }
@@ -132,20 +132,11 @@ driverTripsRouter.post('/trips/:id/telemetry', async (req, res) => {
             tripId,
             ts: timestamp || new Date().toISOString(),
             position: {
-                latitude,
-                longitude,
-                valid: true,
-                satellites: null,
-                speed: speed ?? null,
-                speedLimit: null,
-                heading: heading ?? null,
+                latitude, longitude, valid: true, satellites: null,
+                speed: speed ?? null, speedLimit: null, heading: heading ?? null,
             },
-            // GPS điện thoại không đo được gia tốc/phanh như thiết bị IoT chuyên
-            // dụng - để undefined, handleTelemetryMessage tự ghi null cho các
-            // cột này (không lỗi, chỉ thiếu tín hiệu cho Rule Engine hard-brake/
-            // rapid-accel; overspeed vẫn phát hiện được nhờ có speed).
-            acceleration: undefined,
-            brakeIntensity: undefined,
+            acceleration: { x: accelX ?? null, y: accelY ?? null, z: null },
+            brakeIntensity: brakeIntensity ?? null,
             engine: undefined,
             device: { batteryLevel: null, gsmSignal: null, accuracy: accuracy ?? null },
         });
