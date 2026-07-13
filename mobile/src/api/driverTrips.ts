@@ -50,6 +50,9 @@ export async function sendTelemetry(
     speed: number | null;
     heading: number | null;
     accuracy?: number | null;
+    accelX?: number;
+    accelY?: number;
+    brakeIntensity?: number;
   },
 ): Promise<void> {
   await apiClient.post(`/api/driver/trips/${tripId}/telemetry`, data);
