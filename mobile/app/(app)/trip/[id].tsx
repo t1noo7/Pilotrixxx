@@ -9,13 +9,15 @@ import {
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import * as Location from "expo-location";
-import MapView, { Marker, Region } from "react-native-maps";
+import MapView, { Marker, Region, AnimatedRegion } from "react-native-maps";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { sendTelemetry, endTrip } from "../../../src/api/driverTrips";
 import LoadingOverlay from "../../../src/components/LoadingOverlay";
 import VehicleIcon from "../../../src/components/VehicleIcon";
 import { useTrip } from "../../../src/context/TripContext";
 import type { RiskScore, VehicleType } from "../../../src/types";
+import { Accelerometer } from "expo-sensors";
 
 const TELEMETRY_INTERVAL_MS = 8000;
 
@@ -31,15 +33,37 @@ const RISK_LABEL: Record<string, string> = {
   dangerous: "Nguy hiểm",
 };
 
+// Tính hướng di chuyển (độ, 0-360, 0=Bắc) từ 2 toạ độ liên tiếp - đáng tin
+// hơn heading do GPS/Simulator báo về (dễ bị nhiễu, đặc biệt lúc vào cua ở
+// nút giao hoặc lúc mô phỏng route trên Simulator).
+function computeBearing(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const toDeg = (r: number) => (r * 180) / Math.PI;
+  const dLon = toRad(lon2 - lon1);
+  const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+  const x =
+    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+    Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+  const brng = toDeg(Math.atan2(y, x));
+  return (brng + 360) % 360;
+}
+
 export default function TripScreen() {
-  const { id: tripId, vehicleType: vehicleTypeParam, startedAt } =
-    useLocalSearchParams<{
-      id: string;
-      vehicleType?: string;
-      startedAt?: string;
-    }>();
-  const vehicleType: VehicleType =
-    (vehicleTypeParam as VehicleType) || "sedan";
+  const {
+    id: tripId,
+    vehicleType: vehicleTypeParam,
+    startedAt,
+  } = useLocalSearchParams<{
+    id: string;
+    vehicleType?: string;
+    startedAt?: string;
+  }>();
+  const vehicleType: VehicleType = (vehicleTypeParam as VehicleType) || "sedan";
   const { clearOngoingTrip } = useTrip();
 
   const [permissionGranted, setPermissionGranted] = useState<boolean | null>(
@@ -49,6 +73,7 @@ export default function TripScreen() {
   const [speed, setSpeed] = useState<number | null>(null);
   const [heading, setHeading] = useState<number>(0);
   const [trackViewChanges, setTrackViewChanges] = useState(true);
+  const insets = useSafeAreaInsets();
   const [elapsedSec, setElapsedSec] = useState(0);
   const [ending, setEnding] = useState(false);
   const [result, setResult] = useState<{
@@ -61,6 +86,15 @@ export default function TripScreen() {
       : Date.now(),
   );
   const watchSubRef = useRef<Location.LocationSubscription | null>(null);
+  // Điểm GPS liền trước - dùng để tự tính bearing (hướng di chuyển thật)
+  // thay vì tin heading do Simulator/GPS báo về.
+  const prevPointRef = useRef<{ latitude: number; longitude: number } | null>(
+    null,
+  );
+  // Toạ độ marker dạng animated - cho phép marker "trượt" mượt giữa 2 lần
+  // GPS ping thay vì nhảy cóc tức thời (gây cảm giác giật khi 2 điểm cách
+  // xa nhau lúc xe chạy nhanh).
+  const animatedCoordRef = useRef<AnimatedRegion | null>(null);
   const lastCoordsRef = useRef<{
     latitude: number;
     longitude: number;
@@ -70,6 +104,15 @@ export default function TripScreen() {
   } | null>(null);
   const telemetryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Giá trị đỉnh (peak) gia tốc ghi nhận được TRONG khoảng thời gian giữa
+  // 2 lần gửi telemetry (8s) - accelerometer lấy mẫu ~10Hz, nhanh hơn
+  // nhiều so với tần suất gửi, nếu chỉ đọc giá trị tức thời lúc gửi sẽ bỏ
+  // lỡ cú phanh gấp/cua gắt xảy ra ở giữa khoảng. Reset về 0 sau mỗi lần gửi.
+  const accelPeakRef = useRef({
+    forwardAccel: 0,
+    forwardBrake: 0,
+    lateral: 0,
+  });
 
   // Xin quyền vị trí + bắt đầu theo dõi GPS liên tục
   useEffect(() => {
@@ -97,28 +140,52 @@ export default function TripScreen() {
             latitude,
             longitude,
             speed: spd,
-            heading,
+            heading: gpsHeading,
             accuracy,
           } = loc.coords;
           lastCoordsRef.current = {
             latitude,
             longitude,
             speed: spd,
-            heading,
+            heading: gpsHeading,
             accuracy,
           };
           setSpeed(spd);
-          // Heading GPS không đáng tin khi gần đứng yên (dưới ~1.5 km/h) -
-          // bỏ qua để tránh đầu xe quay loạn xạ, giữ nguyên hướng cũ.
+
+          // Chỉ tính lại bearing khi tốc độ đủ lớn (>1.5km/h) và có điểm
+          // trước đó để so sánh - tránh hướng nhảy loạn xạ lúc gần đứng yên.
           const MIN_SPEED_FOR_HEADING = 0.4; // m/s ~ 1.5 km/h
           if (
-            heading != null &&
-            !Number.isNaN(heading) &&
+            prevPointRef.current &&
             spd != null &&
             spd > MIN_SPEED_FOR_HEADING
           ) {
-            setHeading(heading);
+            const bearing = computeBearing(
+              prevPointRef.current.latitude,
+              prevPointRef.current.longitude,
+              latitude,
+              longitude,
+            );
+            setHeading(bearing);
           }
+          prevPointRef.current = { latitude, longitude };
+
+          if (animatedCoordRef.current) {
+            (animatedCoordRef.current.timing as any)({
+              latitude,
+              longitude,
+              duration: 1800, // hơi ngắn hơn timeInterval (2000ms) để trượt xong trước lần cập nhật tiếp theo
+              useNativeDriver: false,
+            }).start();
+          } else {
+            animatedCoordRef.current = new AnimatedRegion({
+              latitude,
+              longitude,
+              latitudeDelta: 0,
+              longitudeDelta: 0,
+            });
+          }
+
           setRegion((prev) => ({
             latitude,
             longitude,
@@ -132,6 +199,35 @@ export default function TripScreen() {
     return () => {
       watchSubRef.current?.remove();
     };
+  }, []);
+
+  // Đọc accelerometer điện thoại - giả định điện thoại gắn cố định trên
+  // táp-lô (dashboard mount), tư thế đứng (portrait), màn hình hướng về
+  // tài xế, giống cách thiết bị dashcam/định vị thường lắp thật. Trục y
+  // (portrait) ~ hướng tiến/lùi của xe -> rapid_accel/brake_intensity.
+  // Trục x ~ hướng ngang (trái/phải) -> sharp_turn. Đây là giả định hợp lý
+  // cho scope đồ án, khác với thiết bị IoT bắt vít cố định vào khung xe.
+  useEffect(() => {
+    Accelerometer.setUpdateInterval(100); // 10Hz
+
+    const GRAVITY_G = 1.0; // trừ trọng lực để chỉ còn gia tốc do chuyển động
+    const sub = Accelerometer.addListener(({ x, y }) => {
+      // accel_y dương = đang tăng tốc về phía trước, âm = đang giảm tốc (phanh)
+      const forward = y;
+      const lateral = x;
+
+      if (forward > accelPeakRef.current.forwardAccel) {
+        accelPeakRef.current.forwardAccel = forward;
+      }
+      if (-forward > accelPeakRef.current.forwardBrake) {
+        accelPeakRef.current.forwardBrake = -forward;
+      }
+      if (Math.abs(lateral) > Math.abs(accelPeakRef.current.lateral)) {
+        accelPeakRef.current.lateral = lateral;
+      }
+    });
+
+    return () => sub.remove();
   }, []);
 
   // Timer đếm thời gian chạy chuyến
@@ -159,12 +255,19 @@ export default function TripScreen() {
     telemetryTimerRef.current = setInterval(() => {
       const coords = lastCoordsRef.current;
       if (!coords) return;
+
+      const peak = accelPeakRef.current;
+      const brakeIntensity = Math.min(1, peak.forwardBrake / 1.0);
+
       sendTelemetry(tripId, {
         latitude: coords.latitude,
         longitude: coords.longitude,
         speed: coords.speed,
         heading: coords.heading,
         accuracy: coords.accuracy,
+        accelX: Math.round(peak.lateral * 1000) / 1000,
+        accelY: Math.round(peak.forwardAccel * 1000) / 1000,
+        brakeIntensity: Math.round(brakeIntensity * 1000) / 1000,
       }).catch((err) => {
         console.log(
           "sendTelemetry error:",
@@ -173,6 +276,9 @@ export default function TripScreen() {
           err.message,
         );
       });
+
+      // Reset peak cho cửa sổ 8s tiếp theo
+      accelPeakRef.current = { forwardAccel: 0, forwardBrake: 0, lateral: 0 };
     }, TELEMETRY_INTERVAL_MS);
 
     return () => {
@@ -219,8 +325,6 @@ export default function TripScreen() {
   }, [tripId]);
 
   const closeResultAndGoBack = () => {
-    setResult(null);
-    setEnding(false);
     router.replace("/(app)/vehicles");
   };
 
@@ -237,18 +341,18 @@ export default function TripScreen() {
   return (
     <View style={styles.container}>
       <MapView style={styles.map} region={region}>
-        <Marker
-          coordinate={region}
-          anchor={{ x: 0.5, y: 0.5 }}
-          rotation={heading}
-          flat
-          tracksViewChanges={trackViewChanges}
-        >
-          <VehicleIcon type={vehicleType} height={40} />
-        </Marker>
+        {animatedCoordRef.current && (
+          <Marker.Animated
+            coordinate={animatedCoordRef.current as any}
+            anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={trackViewChanges}
+          >
+            <VehicleIcon type={vehicleType} height={40} rotation={heading} />
+          </Marker.Animated>
+        )}
       </MapView>
 
-      <View style={styles.overlayTop}>
+      <View style={[styles.overlayTop, { top: insets.top + 8 }]}>
         <View style={styles.statBox}>
           <Ionicons name="speedometer-outline" size={18} color="#2563eb" />
           <Text style={styles.statValue}>
@@ -260,6 +364,31 @@ export default function TripScreen() {
           <Text style={styles.statValue}>{formatElapsed(elapsedSec)}</Text>
         </View>
       </View>
+
+      {__DEV__ && (
+        <TouchableOpacity
+          style={styles.debugBtn}
+          onPress={() => {
+            accelPeakRef.current = {
+              forwardAccel: 0,
+              forwardBrake: 0.35,
+              lateral: 0.45,
+            };
+            Alert.alert(
+              "Debug",
+              "Đã set giả lập phanh gấp + cua gắt, đợi lần gửi telemetry tiếp theo (~8s) rồi check DB",
+            );
+          }}
+        >
+          <Text style={styles.endBtnText}>🧪 Giả lập sự kiện</Text>
+        </TouchableOpacity>
+      )}
+
+      <TouchableOpacity
+        style={styles.endBtn}
+        onPress={handleEndTrip}
+        disabled={ending}
+      ></TouchableOpacity>
 
       <TouchableOpacity
         style={styles.endBtn}
@@ -352,6 +481,15 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   endBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  debugBtn: {
+    position: "absolute",
+    bottom: 96,
+    alignSelf: "center",
+    backgroundColor: "#7c3aed",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 24,
+  },
   resultBackdrop: {
     flex: 1,
     backgroundColor: "#00000099",
