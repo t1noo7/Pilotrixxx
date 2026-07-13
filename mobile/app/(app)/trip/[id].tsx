@@ -325,7 +325,10 @@ export default function TripScreen() {
   }, [tripId]);
 
   const closeResultAndGoBack = () => {
-    router.replace("/(app)/vehicles");
+    setResult(null); // đóng Modal, để animation fade tự chạy hết
+    setTimeout(() => {
+      router.replace("/(app)/vehicles");
+    }, 300); // khớp thời lượng mặc định của Modal animationType="fade" trên iOS
   };
 
   if (permissionGranted === null) {
@@ -419,7 +422,7 @@ export default function TripScreen() {
                 <Text style={styles.riskBadgeText}>
                   {RISK_LABEL[riskLevel] ?? riskLevel}
                   {result?.riskScore?.final?.risk_score !== undefined
-                    ? ` · ${Math.round(result.riskScore.final.risk_score)} điểm`
+                    ? ` · ${Math.round(result.riskScore.final.risk_score * 100)} điểm`
                     : ""}
                 </Text>
               </View>
