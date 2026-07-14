@@ -1,4 +1,4 @@
-import { Modal, View, ActivityIndicator, StyleSheet, Text } from "react-native";
+import { View, ActivityIndicator, StyleSheet, Text } from "react-native";
 
 export default function LoadingOverlay({
   visible,
@@ -7,21 +7,26 @@ export default function LoadingOverlay({
   visible: boolean;
   message?: string;
 }) {
+  if (!visible) return null;
+
   return (
-    <Modal visible={visible} transparent animationType="fade">
-      <View style={styles.backdrop}>
-        <View style={styles.card}>
-          <ActivityIndicator size="large" color="#22c55e" />
-          {message && <Text style={styles.message}>{message}</Text>}
-        </View>
+    <View style={styles.backdrop}>
+      <View style={styles.card}>
+        <ActivityIndicator size="large" color="#22c55e" />
+        {message && <Text style={styles.message}>{message}</Text>}
       </View>
-    </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   backdrop: {
-    flex: 1,
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 999,
     backgroundColor: "#00000099",
     justifyContent: "center",
     alignItems: "center",

@@ -311,6 +311,7 @@ export default function TripScreen() {
             const res = await endTrip(tripId);
             clearOngoingTrip();
             setResult({ riskScore: res.riskScore });
+            setEnding(false);
           } catch (err: any) {
             Alert.alert(
               "Lỗi",
@@ -325,10 +326,10 @@ export default function TripScreen() {
   }, [tripId]);
 
   const closeResultAndGoBack = () => {
-    setResult(null); // đóng Modal, để animation fade tự chạy hết
+    setResult(null); // đóng Modal component, animation fade tự chạy hết
     setTimeout(() => {
-      router.replace("/(app)/vehicles");
-    }, 300); // khớp thời lượng mặc định của Modal animationType="fade" trên iOS
+      router.dismissTo("/(app)/vehicles"); // thay router.replace
+    }, 300);
   };
 
   if (permissionGranted === null) {
@@ -386,12 +387,6 @@ export default function TripScreen() {
           <Text style={styles.endBtnText}>🧪 Giả lập sự kiện</Text>
         </TouchableOpacity>
       )}
-
-      <TouchableOpacity
-        style={styles.endBtn}
-        onPress={handleEndTrip}
-        disabled={ending}
-      ></TouchableOpacity>
 
       <TouchableOpacity
         style={styles.endBtn}
