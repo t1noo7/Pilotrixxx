@@ -97,7 +97,13 @@ try:
 
     DATABASE_URL = os.getenv("DATABASE_URL")
     if not DATABASE_URL:
-        print(json.dumps({"error": "DATABASE_URL chua duoc set (khong co trong backend/.env lan os environment)"}))
+        print(
+            json.dumps(
+                {
+                    "error": "DATABASE_URL chua duoc set (khong co trong backend/.env lan os environment)"
+                }
+            )
+        )
         sys.exit(2)
 
     # connect_timeout: neu ket noi bi treo (mang cham/firewall/SSL negotiation
@@ -238,7 +244,6 @@ try:
         )
 except Exception as e:
     print(json.dumps({"error": f"Khong the UPSERT risk_scores: {str(e)}"}))
-    conn.close()
     sys.exit(2)
 finally:
     conn.close()
