@@ -43,7 +43,10 @@ def _haversine_km(lat1, lng1, lat2, lng2):
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlambda = math.radians(lng2 - lng1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    a = (
+        math.sin(dphi / 2) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    )
     return 2 * EARTH_RADIUS_KM * math.asin(math.sqrt(a))
 
 
@@ -52,7 +55,9 @@ def _bearing_deg(lat1, lng1, lat2, lng2):
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dlambda = math.radians(lng2 - lng1)
     y = math.sin(dlambda) * math.cos(phi2)
-    x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dlambda)
+    x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(
+        dlambda
+    )
     return (math.degrees(math.atan2(y, x)) + 360) % 360
 
 
@@ -64,7 +69,8 @@ def _destination_point(lat, lng, distance_km, bearing_deg):
     ang_dist = distance_km / EARTH_RADIUS_KM
 
     lat2 = math.asin(
-        math.sin(lat1) * math.cos(ang_dist) + math.cos(lat1) * math.sin(ang_dist) * math.cos(bearing_rad)
+        math.sin(lat1) * math.cos(ang_dist)
+        + math.cos(lat1) * math.sin(ang_dist) * math.cos(bearing_rad)
     )
     lng2 = lng1 + math.atan2(
         math.sin(bearing_rad) * math.sin(ang_dist) * math.cos(lat1),
@@ -87,7 +93,9 @@ def _fetch_osrm_route(start_lat, start_lng, end_lat, end_lng):
         if data.get("code") != "Ok" or not data.get("routes"):
             return None
         # GeoJSON tra ve [lng, lat] - dao lai thanh (lat, lng) cho de dung
-        coords = [(lat, lng) for lng, lat in data["routes"][0]["geometry"]["coordinates"]]
+        coords = [
+            (lat, lng) for lng, lat in data["routes"][0]["geometry"]["coordinates"]
+        ]
         return coords
     except (requests.RequestException, ValueError, KeyError, IndexError):
         return None
@@ -112,7 +120,9 @@ class RouteState:
         """Xin OSRM 1 tuyen duong moi tu vi tri hien tai den 1 diem ngau nhien gan do."""
         leg_distance = random.uniform(LEG_DISTANCE_MIN_KM, LEG_DISTANCE_MAX_KM)
         bearing = random.uniform(0, 360)
-        dest_lat, dest_lng = _destination_point(self.lat, self.lng, leg_distance, bearing)
+        dest_lat, dest_lng = _destination_point(
+            self.lat, self.lng, leg_distance, bearing
+        )
 
         coords = _fetch_osrm_route(self.lat, self.lng, dest_lat, dest_lng)
 
@@ -142,7 +152,9 @@ class RouteState:
         """
         total = self._cum_dist_km[-1]
         if dist_km >= total:
-            dist_km = total  # het chang - dung o diem cuoi, se xin chang moi o step() sau
+            dist_km = (
+                total  # het chang - dung o diem cuoi, se xin chang moi o step() sau
+            )
 
         # Tim doan [i-1, i] chua dist_km
         i = 1
@@ -186,3 +198,26 @@ class RouteState:
 
         self.lat, self.lng, self.heading = self._position_at(self._dist_into_leg_km)
         return self.lat, self.lng, self.heading
+
+    def head_to_depot(self):
+        """Ep chang tiep theo di thang ve depot (START_LATITUDE/LONGITUDE)
+        thay vi chon huong ngau nhien - dung khi xe can 've gara' truoc
+        khi nhuong quyen cho driver that thue xe."""
+        coords = _fetch_osrm_route(self.lat, self.lng, START_LATITUDE, START_LONGITUDE)
+        if coords is None or len(coords) < 2:
+            coords = [(self.lat, self.lng), (START_LATITUDE, START_LONGITUDE)]
+        coords[0] = (self.lat, self.lng)
+
+        cum_dist = [0.0]
+        for i in range(1, len(coords)):
+            d = _haversine_km(*coords[i - 1], *coords[i])
+            cum_dist.append(cum_dist[-1] + d)
+
+        self._coords = coords
+        self._cum_dist_km = cum_dist
+        self._dist_into_leg_km = 0.0
+
+    def distance_to_depot_km(self) -> float:
+        """Khoang cach con lai (km) toi depot - dung de biet khi nao xe
+        da 've gara' xong."""
+        return _haversine_km(self.lat, self.lng, START_LATITUDE, START_LONGITUDE)

@@ -47,6 +47,18 @@ def end_trip(trip_id: int):
     return resp.json()
 
 
+def abort_trip(trip_id: int):
+    """Danh dau trip la 'aborted' khi simulation loi giua chung (vd MQTT
+    khong ket noi duoc) - tranh trip bi ket mai o status='ongoing', chan
+    lan chay sau cua chinh xe do (409 Conflict)."""
+    try:
+        url = f"{BACKEND_URL}/api/trips/{trip_id}/abort"
+        resp = requests.post(url)
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"[abort_trip] Khong abort duoc trip {trip_id}: {e}")
+
+
 def build_mqtt_client(client_id_suffix: str) -> mqtt.Client:
     """Tao MQTT client da connect den HiveMQ Cloud (TLS)."""
     client = mqtt.Client(
@@ -60,7 +72,9 @@ def build_mqtt_client(client_id_suffix: str) -> mqtt.Client:
     return client
 
 
-def run_simulation(device_ident: str, scenario: str, log_prefix: str = ""):
+def run_simulation(
+    device_ident: str, scenario: str, log_prefix: str = "", stop_event=None
+):
     prefix = log_prefix or device_ident
 
     # 1. Bat dau trip
@@ -71,75 +85,92 @@ def run_simulation(device_ident: str, scenario: str, log_prefix: str = ""):
         f"[{prefix}] Trip started: tripId={trip_id}, vehicleId={vehicle_id}, scenario={scenario}"
     )
 
-    # 2. Setup MQTT
-    mqtt_client = build_mqtt_client(prefix)
-    topic = f"vehicles/{vehicle_id}/telemetry"
+    try:
+        # 2. Setup MQTT
+        mqtt_client = build_mqtt_client(prefix)
+        topic = f"vehicles/{vehicle_id}/telemetry"
 
-    # 3. Khoi tao route + trang thai
-    route = RouteState()
-    speed_limit = pick_speed_limit()
-    prev_speed = random.uniform(20, 40)  # toc do khoi dau
+        # 3. Khoi tao route + trang thai
+        route = RouteState()
+        speed_limit = pick_speed_limit()
+        prev_speed = random.uniform(20, 40)  # toc do khoi dau
 
-    duration = random.randint(TRIP_DURATION_MIN_SECONDS, TRIP_DURATION_MAX_SECONDS)
-    num_points = duration // TELEMETRY_INTERVAL_SECONDS
-    print(f"[{prefix}] Trip duration: {duration}s (~{num_points} diem)")
+        duration = random.randint(TRIP_DURATION_MIN_SECONDS, TRIP_DURATION_MAX_SECONDS)
+        num_points = duration // TELEMETRY_INTERVAL_SECONDS
+        print(f"[{prefix}] Trip duration: {duration}s (~{num_points} diem)")
 
-    # 4. Loop publish telemetry
-    for i in range(num_points):
-        point = generate_telemetry_point(scenario, speed_limit, prev_speed)
-        prev_speed = point["speed"]
+        # 4. Loop publish telemetry
+        heading_to_depot = False
+        for i in range(num_points):
+            if stop_event is not None and stop_event.is_set() and not heading_to_depot:
+                print(f"[{prefix}] Co driver dat xe - bat dau di ve depot.")
+                route.head_to_depot()
+                heading_to_depot = True
 
-        # Doi 1 doan duong moi (~moi 20 diem) - mo phong chuyen "doan duong"
-        if i > 0 and i % 20 == 0:
-            speed_limit = pick_speed_limit()
+            if (
+                heading_to_depot and route.distance_to_depot_km() < 0.05
+            ):  # ~50m coi nhu da toi
+                print(f"[{prefix}] Da ve depot - san sang cho driver nhan xe.")
+                break
 
-        lat, lng, heading = route.step(point["speed"])
+            point = generate_telemetry_point(scenario, speed_limit, prev_speed)
+            prev_speed = point["speed"]
 
-        payload = {
-            "vehicleId": vehicle_id,
-            "tripId": trip_id,
-            "ts": datetime.now(timezone.utc)
-            .isoformat(timespec="milliseconds")
-            .replace("+00:00", "Z"),
-            "position": {
-                "latitude": round(lat, 6),
-                "longitude": round(lng, 6),
-                "valid": point["position_valid"],
-                "satellites": point["satellites"],
-                "speed": point["speed"],
-                "speedLimit": speed_limit,
-                "heading": round(heading, 1),
-            },
-            "acceleration": {
-                "x": point["accel_x"],
-                "y": point["accel_y"],
-                "z": point["accel_z"],
-            },
-            "brakeIntensity": point["brake_intensity"],
-            "engine": {
-                "ignitionStatus": point["ignition_status"],
-                "rpm": point["engine_rpm"],
-            },
-            "device": {
-                "batteryLevel": point["battery_level"],
-                "gsmSignal": point["gsm_signal"],
-            },
-        }
+            # Doi 1 doan duong moi (~moi 20 diem) - mo phong chuyen "doan duong"
+            if i > 0 and i % 20 == 0:
+                speed_limit = pick_speed_limit()
 
-        mqtt_client.publish(topic, json.dumps(payload), qos=1)
+            lat, lng, heading = route.step(point["speed"])
 
-        event_note = f" event={point['event_type']}" if point["event_type"] else ""
-        print(
-            f"[{prefix}] [{i+1}/{num_points}] speed={point['speed']} limit={speed_limit}{event_note}"
-        )
+            payload = {
+                "vehicleId": vehicle_id,
+                "tripId": trip_id,
+                "ts": datetime.now(timezone.utc)
+                .isoformat(timespec="milliseconds")
+                .replace("+00:00", "Z"),
+                "position": {
+                    "latitude": round(lat, 6),
+                    "longitude": round(lng, 6),
+                    "valid": point["position_valid"],
+                    "satellites": point["satellites"],
+                    "speed": point["speed"],
+                    "speedLimit": speed_limit,
+                    "heading": round(heading, 1),
+                },
+                "acceleration": {
+                    "x": point["accel_x"],
+                    "y": point["accel_y"],
+                    "z": point["accel_z"],
+                },
+                "brakeIntensity": point["brake_intensity"],
+                "engine": {
+                    "ignitionStatus": point["ignition_status"],
+                    "rpm": point["engine_rpm"],
+                },
+                "device": {
+                    "batteryLevel": point["battery_level"],
+                    "gsmSignal": point["gsm_signal"],
+                },
+            }
 
-        time.sleep(TELEMETRY_INTERVAL_SECONDS)
+            mqtt_client.publish(topic, json.dumps(payload), qos=1)
 
-    # 5. Ket thuc trip
-    mqtt_client.loop_stop()
-    mqtt_client.disconnect()
-    end_trip(trip_id)
-    print(f"[{prefix}] Trip {trip_id} completed.")
+            event_note = f" event={point['event_type']}" if point["event_type"] else ""
+            print(
+                f"[{prefix}] [{i+1}/{num_points}] speed={point['speed']} limit={speed_limit}{event_note}"
+            )
+
+            time.sleep(TELEMETRY_INTERVAL_SECONDS)
+
+        # 5. Ket thuc trip
+        mqtt_client.loop_stop()
+        mqtt_client.disconnect()
+        end_trip(trip_id)
+        print(f"[{prefix}] Trip {trip_id} completed.")
+    except Exception as e:
+        print(f"[{prefix}] Loi giua trip {trip_id}, dang abort: {e}")
+        abort_trip(trip_id)
+        raise
 
 
 if __name__ == "__main__":

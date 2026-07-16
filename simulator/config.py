@@ -18,6 +18,8 @@ MQTT_HOST = _require_env("MQTT_HOST")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))
 MQTT_USERNAME = _require_env("MQTT_USERNAME")
 MQTT_PASSWORD = _require_env("MQTT_PASSWORD")
+DATABASE_URL = _require_env("DATABASE_URL")
+FLEET_CONTROL_SECRET = _require_env("FLEET_CONTROL_SECRET")
 
 # --- Telemetry timing ---
 TELEMETRY_INTERVAL_SECONDS = 5  # tan suat gui, theo mqtt_payload_schema.md

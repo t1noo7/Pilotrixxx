@@ -193,6 +193,40 @@ tripsRouter.post('/:id/end', async (req, res) => {
         client.release();
     }
 });
+
+/**
+ * POST /api/trips/:id/abort
+ * Dung khi simulation loi giua chung (vd MQTT khong ket noi duoc) -
+ * dong trip o trang thai 'aborted' thay vi de ket mai o 'ongoing',
+ * tranh chan 409 Conflict cho lan chay sau cua chinh xe do.
+ * Khac /:id/end: KHONG trigger Trip Summary / ML Risk Scoring, vi day
+ * la trip loi/khong hoan chinh, khong co du lieu de tinh toan y nghia.
+ */
+tripsRouter.post('/:id/abort', async (req, res) => {
+    const tripId = parseInt(req.params.id, 10);
+    if (Number.isNaN(tripId)) {
+        return res.status(400).json({ error: 'tripId khong hop le' });
+    }
+
+    try {
+        const result = await pool.query(
+            `UPDATE trips SET status = 'aborted', ended_at = now()
+             WHERE trip_id = $1 AND status = 'ongoing'
+             RETURNING trip_id`,
+            [tripId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: `Trip #${tripId} khong ton tai hoac da ket thuc` });
+        }
+
+        res.json({ tripId, status: 'aborted' });
+    } catch (err) {
+        console.error('[POST /trips/:id/abort] Error:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 /**
  * GET /api/trips
  * Danh sách chuyến đi, filter theo driverId/vehicleId/status
