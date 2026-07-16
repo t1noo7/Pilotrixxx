@@ -347,6 +347,15 @@ function FitBoundsOnLoad({ positions }) {
   useEffect(() => {
     if (hasFitted.current || positions.length === 0) return;
     const bounds = L.latLngBounds(positions);
+    // Nếu điểm xa nhau quá ngưỡng hợp lý cho 1 đội xe nội thành (~200km),
+    // khả năng cao là dữ liệu rác (vd lẫn toạ độ test Simulator) -> giữ
+    // nguyên center mặc định Hà Nội thay vì zoom ra cả thế giới.
+    const sw = bounds.getSouthWest();
+    const ne = bounds.getNorthEast();
+    if (sw.distanceTo(ne) > 200_000) {
+      hasFitted.current = true;
+      return;
+    }
     map.fitBounds(bounds, { padding: [60, 60], maxZoom: 14 });
     hasFitted.current = true;
   }, [positions, map]);
