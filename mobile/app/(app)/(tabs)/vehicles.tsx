@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   View,
   Text,
@@ -10,11 +10,15 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { getAvailableVehicles, startTrip } from "../../src/api/driverTrips";
-import LoadingOverlay from "../../src/components/LoadingOverlay";
-import VehicleIcon from "../../src/components/VehicleIcon";
-import { useTrip } from "../../src/context/TripContext";
-import type { Vehicle } from "../../src/types";
+import {
+  getAvailableVehicles,
+  reserveTrip,
+} from "../../../src/api/driverTrips";
+import LoadingOverlay from "../../../src/components/LoadingOverlay";
+import VehicleIcon from "../../../src/components/VehicleIcon";
+import { useTrip } from "../../../src/context/TripContext";
+import type { Vehicle } from "../../../src/types";
+import { useFocusEffect } from "expo-router";
 
 export default function VehiclesScreen() {
   const { refreshOngoingTrip } = useTrip();
@@ -23,68 +27,79 @@ export default function VehiclesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [starting, setStarting] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      // Check trip đang chạy trước - resume state nếu app từng bị tắt giữa chuyến
-      const current = await refreshOngoingTrip();
-      if (current) {
-        router.replace({
-          pathname: "/(app)/trip/[id]",
-          params: {
-            id: current.trip_id,
-            vehicleType: current.vehicle_type,
-            startedAt: current.started_at,
-          },
-        });
-        return;
+  const load = useCallback(
+    async (isRefresh = false) => {
+      if (!isRefresh) setLoading(true);
+      try {
+        // Check trip đang chạy trước - resume state nếu app từng bị tắt giữa chuyến
+        const current = await refreshOngoingTrip();
+        if (current) {
+          if (current.status === "pending") {
+            router.replace({
+              pathname: "/(app)/trip/waiting",
+              params: {
+                id: current.trip_id,
+                vehicleType: current.vehicle_type,
+              },
+            });
+          } else {
+            router.replace({
+              pathname: "/(app)/trip/[id]",
+              params: {
+                id: current.trip_id,
+                vehicleType: current.vehicle_type,
+                startedAt: current.started_at,
+              },
+            });
+          }
+          return;
+        }
+        const list = await getAvailableVehicles();
+        setVehicles(list);
+      } catch (err: any) {
+        console.log(
+          "getAvailableVehicles error:",
+          err.response?.status,
+          err.response?.data,
+          err.message,
+        );
+        Alert.alert(
+          "Lỗi",
+          err.response?.data?.error || "Không tải được danh sách xe",
+        );
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
-      const list = await getAvailableVehicles();
-      setVehicles(list);
-    } catch (err: any) {
-      console.log(
-        "getAvailableVehicles error:",
-        err.response?.status,
-        err.response?.data,
-        err.message,
-      );
-      Alert.alert(
-        "Lỗi",
-        err.response?.data?.error || "Không tải được danh sách xe",
-      );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [refreshOngoingTrip]);
+    },
+    [refreshOngoingTrip],
+  );
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load]),
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
-    load();
+    load(true);
   };
 
   const handleSelect = async (vehicle: Vehicle) => {
     setStarting(true);
     try {
-      const { tripId } = await startTrip(vehicle.vehicle_id);
+      const { tripId } = await reserveTrip(vehicle.vehicle_id);
       await refreshOngoingTrip();
       router.push({
-        pathname: "/(app)/trip/[id]",
-        params: {
-          id: tripId,
-          vehicleType: vehicle.vehicle_type,
-          startedAt: new Date().toISOString(),
-        },
+        pathname: "/(app)/trip/waiting",
+        params: { id: tripId, vehicleType: vehicle.vehicle_type },
       });
     } catch (err: any) {
       Alert.alert(
-        "Không bắt đầu được chuyến",
+        "Không đặt được xe",
         err.response?.data?.error || "Có lỗi xảy ra, thử lại sau",
       );
-      // Xe vừa bị người khác đặt -> load lại danh sách cho khớp thực tế
       load();
     } finally {
       setStarting(false);
@@ -96,7 +111,7 @@ export default function VehiclesScreen() {
 
   return (
     <View style={styles.container}>
-      {starting && <LoadingOverlay visible message="Đang bắt đầu chuyến..." />}
+      {starting && <LoadingOverlay visible message="Đang đặt xe..." />}
       <FlatList
         data={vehicles}
         keyExtractor={(item) => item.vehicle_id}
