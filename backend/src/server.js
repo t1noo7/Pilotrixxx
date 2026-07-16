@@ -15,7 +15,7 @@ import { dashboardRouter, riskScoresRouter, telemetryLiveRouter } from './routes
 import { authRouter } from './routes/auth.js';
 import { verifyToken, verifyDriverToken } from './middleware/authMiddleware.js';
 import { driverAuthRouter } from './routes/driverAuth.js';
-import { driverTripsRouter } from './routes/driverTrips.js';
+import { driverTripsRouter, handleVehicleReady, handleVehicleFailed } from './routes/driverTrips.js';
 
 dotenv.config();
 
@@ -57,6 +57,61 @@ io.on('connection', (socket) => {
     console.log(`[socket.io] Client connected: ${socket.id} (admin: ${socket.admin?.username})`);
     socket.on('disconnect', () => {
         console.log(`[socket.io] Client disconnected: ${socket.id}`);
+    });
+});
+
+// Namespace riêng cho run_fleet.py (Python) - dùng shared secret, KHÔNG
+// dùng chung JWT admin vì đây là tín hiệu điều phối máy-với-máy, không
+// phải phiên đăng nhập người dùng.
+export const fleetControlNamespace = io.of('/fleet-control');
+
+fleetControlNamespace.use((socket, next) => {
+    const secret = socket.handshake.auth?.secret;
+    if (!secret || secret !== process.env.FLEET_CONTROL_SECRET) {
+        return next(new Error('Sai fleet control secret'));
+    }
+    next();
+});
+
+fleetControlNamespace.on('connection', (socket) => {
+    console.log(`[fleet-control] Python fleet controller connected: ${socket.id}`);
+    socket.on('vehicle:ready', handleVehicleReady);
+    socket.on('vehicle:failed', handleVehicleFailed);
+    socket.on('disconnect', () => {
+        console.log(`[fleet-control] Fleet controller disconnected: ${socket.id}`);
+    });
+});
+
+// Namespace cho driver mobile app - nhận tín hiệu real-time (xe đã về
+// depot, sẵn sàng bàn giao) thay vì phải polling. Auth bằng driver JWT,
+// cùng logic verifyDriverToken (HTTP) nhưng áp cho socket handshake.
+export const driverNamespace = io.of('/driver');
+
+driverNamespace.use((socket, next) => {
+    const token = socket.handshake.auth?.token;
+    if (!token) return next(new Error('Thiếu token xác thực'));
+
+    try {
+        const payload = jwt.verify(token, process.env.JWT_SECRET);
+        if (payload.role !== 'driver') {
+            return next(new Error('Chỉ driver mới được kết nối namespace này'));
+        }
+        socket.driver = { driverId: payload.driverId, email: payload.email };
+        next();
+    } catch (err) {
+        next(new Error('Token không hợp lệ hoặc đã hết hạn'));
+    }
+});
+
+driverNamespace.on('connection', (socket) => {
+    // Tự join room theo driverId ngay khi connect - tránh race condition
+    // nếu vehicle:ready tới trước khi client kịp tự join thủ công.
+    const room = `driver:${socket.driver.driverId}`;
+    socket.join(room);
+    console.log(`[driver-ns] Driver connected: ${socket.id} (driverId: ${socket.driver.driverId})`);
+
+    socket.on('disconnect', () => {
+        console.log(`[driver-ns] Driver disconnected: ${socket.id}`);
     });
 });
 

@@ -3,6 +3,7 @@ import { pool } from '../db.js';
 import { generateTripSummary } from '../services/tripSummaryService.js';
 import { runMlPredict } from './trips.js';
 import { handleTelemetryMessage } from '../services/telemetryService.js';
+import { fleetControlNamespace, driverNamespace } from '../server.js';
 
 export const driverTripsRouter = express.Router();
 
@@ -17,9 +18,9 @@ driverTripsRouter.get('/vehicles/available', async (req, res) => {
                    v.last_latitude, v.last_longitude
             FROM vehicles v
             WHERE NOT EXISTS (
-                SELECT 1 FROM trips t
-                WHERE t.vehicle_id = v.vehicle_id AND t.status = 'ongoing'
-            )
+    SELECT 1 FROM trips t
+    WHERE t.vehicle_id = v.vehicle_id AND t.status IN ('ongoing', 'pending')
+)
             ORDER BY v.vehicle_id
         `);
         res.json(result.rows);
@@ -37,10 +38,10 @@ driverTripsRouter.get('/vehicles/available', async (req, res) => {
 driverTripsRouter.get('/trips/current', async (req, res) => {
     try {
         const result = await pool.query(
-            `SELECT t.trip_id, t.vehicle_id, t.started_at, t.scenario,
+            `SELECT t.trip_id, t.vehicle_id, t.started_at, t.scenario, t.status,
                     v.license_plate, v.model, v.vehicle_type
              FROM trips t JOIN vehicles v ON v.vehicle_id = t.vehicle_id
-             WHERE t.driver_id = $1 AND t.status = 'ongoing'`,
+             WHERE t.driver_id = $1 AND t.status IN ('ongoing', 'pending')`,
             [req.driver.driverId]
         );
         res.json(result.rows[0] || null);
@@ -51,48 +52,78 @@ driverTripsRouter.get('/trips/current', async (req, res) => {
 });
 
 /**
- * POST /api/driver/trips/start
+ * POST /api/driver/trips/reserve
  * Body: { vehicleId }
- * driver_id LẤY TỪ TOKEN, không nhận từ body (tránh driver giả mạo driver khác).
+ * Tạo trip status='pending' - driver đã "đặt" xe nhưng CHƯA thật sự lái.
+ * Nếu xe đang bị simulator giả lập, fleet controller sẽ tự đưa xe về
+ * depot trước, báo sẵn sàng qua Socket.IO ('vehicle:ready' -> /driver ns).
  */
-driverTripsRouter.post('/trips/start', async (req, res) => {
+driverTripsRouter.post('/trips/reserve', async (req, res) => {
     const { vehicleId } = req.body;
     if (!vehicleId) return res.status(400).json({ error: 'vehicleId là bắt buộc' });
 
     const driverId = req.driver.driverId;
     const client = await pool.connect();
     try {
-        // Driver không được có 2 trip ongoing cùng lúc
         const existing = await client.query(
-            `SELECT trip_id FROM trips WHERE driver_id = $1 AND status = 'ongoing'`,
+            `SELECT trip_id FROM trips WHERE driver_id = $1 AND status IN ('ongoing', 'pending')`,
             [driverId]
         );
         if (existing.rows.length > 0) {
             return res.status(409).json({ error: `Bạn đang có chuyến #${existing.rows[0].trip_id} chưa kết thúc` });
         }
 
-        // Xe được chọn phải còn trống (double-check, phòng race condition
-        // giữa lúc GET /available và lúc bấm start)
-        const vehicleOngoing = await client.query(
-            `SELECT trip_id FROM trips WHERE vehicle_id = $1 AND status = 'ongoing'`,
+        const vehicleBusy = await client.query(
+            `SELECT trip_id FROM trips WHERE vehicle_id = $1 AND status IN ('ongoing', 'pending')`,
             [vehicleId]
         );
-        if (vehicleOngoing.rows.length > 0) {
+        if (vehicleBusy.rows.length > 0) {
             return res.status(409).json({ error: 'Xe này vừa có người khác đặt, chọn xe khác nhé' });
         }
 
         const tripRes = await client.query(
             `INSERT INTO trips (driver_id, vehicle_id, scenario, status, started_at)
-             VALUES ($1, $2, 'manual', 'ongoing', now())
+             VALUES ($1, $2, 'manual', 'pending', now())
              RETURNING trip_id`,
             [driverId, vehicleId]
         );
-        res.status(201).json({ tripId: tripRes.rows[0].trip_id, vehicleId, driverId });
+        const tripId = tripRes.rows[0].trip_id;
+
+        fleetControlNamespace.emit('vehicle:requested', { vehicleId, tripId });
+
+        res.status(201).json({ tripId, vehicleId, driverId, status: 'pending' });
     } catch (err) {
-        console.error('[POST /driver/trips/start] Error:', err.message);
+        console.error('[POST /driver/trips/reserve] Error:', err.message);
         res.status(500).json({ error: 'Internal server error' });
     } finally {
         client.release();
+    }
+});
+
+/**
+ * POST /api/driver/trips/:id/activate
+ * Chuyển trip pending -> ongoing, set started_at = now() = thời điểm
+ * driver THẬT SỰ bắt đầu lái (bấm nút sau khi nhận xe tại depot).
+ * Từ lúc này trip/[id].tsx mới bắt đầu watchPositionAsync/gửi telemetry.
+ */
+driverTripsRouter.post('/trips/:id/activate', async (req, res) => {
+    const tripId = parseInt(req.params.id, 10);
+    if (Number.isNaN(tripId)) return res.status(400).json({ error: 'tripId không hợp lệ' });
+
+    try {
+        const result = await pool.query(
+            `UPDATE trips SET status = 'ongoing', started_at = now()
+             WHERE trip_id = $1 AND driver_id = $2 AND status = 'pending'
+             RETURNING trip_id, vehicle_id, started_at`,
+            [tripId, req.driver.driverId]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: `Chuyến #${tripId} không tồn tại, không thuộc về bạn, hoặc chưa ở trạng thái chờ` });
+        }
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('[POST /driver/trips/:id/activate] Error:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -161,12 +192,13 @@ driverTripsRouter.post('/trips/:id/end', async (req, res) => {
         const result = await client.query(
             `UPDATE trips SET status = 'completed', ended_at = now()
              WHERE trip_id = $1 AND driver_id = $2 AND status = 'ongoing'
-             RETURNING trip_id`,
+             RETURNING trip_id, vehicle_id`,
             [tripId, req.driver.driverId]
         );
         if (result.rows.length === 0) {
             return res.status(404).json({ error: `Chuyến #${tripId} không tồn tại, không thuộc về bạn, hoặc đã kết thúc` });
         }
+        fleetControlNamespace.emit('vehicle:returned', { vehicleId: result.rows[0].vehicle_id, tripId });
 
         let summary = null;
         try { summary = await generateTripSummary(tripId); }
@@ -184,6 +216,38 @@ driverTripsRouter.post('/trips/:id/end', async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     } finally {
         client.release();
+    }
+});
+
+/**
+ * POST /api/driver/trips/:id/rate
+ * Body: { rating } (số nguyên 1-5) - driver đánh giá chuyến vừa xong,
+ * kiểu Grab/Google Maps. Chỉ cho rate trip đã 'completed' và thuộc
+ * đúng driver đó (không cho rate hộ/rate trip người khác).
+ */
+driverTripsRouter.post('/trips/:id/rate', async (req, res) => {
+    const tripId = parseInt(req.params.id, 10);
+    if (Number.isNaN(tripId)) return res.status(400).json({ error: 'tripId không hợp lệ' });
+
+    const { rating } = req.body;
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+        return res.status(400).json({ error: 'rating phải là số nguyên 1-5' });
+    }
+
+    try {
+        const result = await pool.query(
+            `UPDATE trips SET driver_rating = $1
+             WHERE trip_id = $2 AND driver_id = $3 AND status = 'completed'
+             RETURNING trip_id, driver_rating`,
+            [rating, tripId, req.driver.driverId]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: `Chuyến #${tripId} không tồn tại, không thuộc về bạn, hoặc chưa kết thúc` });
+        }
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('[POST /driver/trips/:id/rate] Error:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -212,3 +276,46 @@ driverTripsRouter.get('/trips/history', async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+
+/**
+ * Nhận từ fleet-control namespace khi simulator báo xe đã về tới depot.
+ * Tra pending trip tương ứng, báo tiếp cho đúng driver qua /driver namespace.
+ */
+export async function handleVehicleReady({ vehicleId }) {
+    try {
+        const result = await pool.query(
+            `SELECT trip_id, driver_id FROM trips
+             WHERE vehicle_id = $1 AND status = 'pending'
+             ORDER BY created_at DESC LIMIT 1`,
+            [vehicleId]
+        );
+        if (result.rows.length === 0) {
+            console.log(`[vehicle:ready] Không tìm thấy trip pending cho vehicle ${vehicleId}`);
+            return;
+        }
+        const { trip_id, driver_id } = result.rows[0];
+        driverNamespace.to(`driver:${driver_id}`).emit('vehicle:ready', { vehicleId, tripId: trip_id });
+    } catch (err) {
+        console.error('[handleVehicleReady] Error:', err.message);
+    }
+}
+
+/**
+ * Nhan tu fleet-control khi simulator loi giua chung luc dua xe ve depot.
+ * Huy pending trip, bao driver biet de chon xe khac - tranh ket man cho.
+ */
+export async function handleVehicleFailed({ vehicleId, reason }) {
+    try {
+        const result = await pool.query(
+            `UPDATE trips SET status = 'aborted', ended_at = now()
+             WHERE vehicle_id = $1 AND status = 'pending'
+             RETURNING trip_id, driver_id`,
+            [vehicleId]
+        );
+        if (result.rows.length === 0) return;
+        const { trip_id, driver_id } = result.rows[0];
+        driverNamespace.to(`driver:${driver_id}`).emit('vehicle:failed', { vehicleId, tripId: trip_id, reason });
+    } catch (err) {
+        console.error('[handleVehicleFailed] Error:', err.message);
+    }
+}
