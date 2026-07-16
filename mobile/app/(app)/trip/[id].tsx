@@ -12,7 +12,7 @@ import * as Location from "expo-location";
 import MapView, { Marker, Region, AnimatedRegion } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { sendTelemetry, endTrip } from "../../../src/api/driverTrips";
+import { sendTelemetry, endTrip, rateTrip } from "../../../src/api/driverTrips";
 import LoadingOverlay from "../../../src/components/LoadingOverlay";
 import VehicleIcon from "../../../src/components/VehicleIcon";
 import { useTrip } from "../../../src/context/TripContext";
@@ -53,6 +53,26 @@ function computeBearing(
   return (brng + 360) % 360;
 }
 
+// Tính khoảng cách (mét) giữa 2 toạ độ - dùng làm fallback tự tính tốc độ
+// khi coords.speed do he thong tra ve khong dang tin (null/am - hay gap
+// tren Simulator dung xcrun simctl location set, vi lenh nay chi "day"
+// toa do tuc thoi, khong mo phong truong speed nhu GPS that).
+function computeDistanceMeters(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+): number {
+  const R = 6371000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export default function TripScreen() {
   const {
     id: tripId,
@@ -79,6 +99,8 @@ export default function TripScreen() {
   const [result, setResult] = useState<{
     riskScore: RiskScore | null;
   } | null>(null);
+  const [rating, setRating] = useState(0);
+  const [ratingSubmitting, setRatingSubmitting] = useState(false);
 
   const startTimeRef = useRef(
     startedAt && !Number.isNaN(new Date(startedAt).getTime())
@@ -91,6 +113,9 @@ export default function TripScreen() {
   const prevPointRef = useRef<{ latitude: number; longitude: number } | null>(
     null,
   );
+  // Mốc thoi gian cua lan doc GPS truoc - dung cung prevPointRef de tu tinh
+  // toc do fallback (khoang cach / delta-time) khi coords.speed khong dang tin.
+  const prevFixTimeRef = useRef<number | null>(null);
   // Toạ độ marker dạng animated - cho phép marker "trượt" mượt giữa 2 lần
   // GPS ping thay vì nhảy cóc tức thời (gây cảm giác giật khi 2 điểm cách
   // xa nhau lúc xe chạy nhanh).
@@ -143,22 +168,42 @@ export default function TripScreen() {
             heading: gpsHeading,
             accuracy,
           } = loc.coords;
+
+          // coords.speed co the null/am khi khong dang tin (thiet bi that GPS yeu,
+          // hoac Simulator dung simctl set khong mo phong truong nay) - fallback
+          // tu tinh bang khoang cach/delta-time giua 2 lan doc GPS lien tiep.
+          let effectiveSpeed = spd;
+          if (
+            (effectiveSpeed == null || effectiveSpeed < 0) &&
+            prevPointRef.current &&
+            prevFixTimeRef.current != null
+          ) {
+            const dist = computeDistanceMeters(
+              prevPointRef.current.latitude,
+              prevPointRef.current.longitude,
+              latitude,
+              longitude,
+            );
+            const dtSec = (loc.timestamp - prevFixTimeRef.current) / 1000;
+            if (dtSec > 0) {
+              effectiveSpeed = dist / dtSec;
+            }
+          }
+
           lastCoordsRef.current = {
             latitude,
             longitude,
-            speed: spd,
+            speed: effectiveSpeed,
             heading: gpsHeading,
             accuracy,
           };
-          setSpeed(spd);
+          setSpeed(effectiveSpeed);
 
-          // Chỉ tính lại bearing khi tốc độ đủ lớn (>1.5km/h) và có điểm
-          // trước đó để so sánh - tránh hướng nhảy loạn xạ lúc gần đứng yên.
           const MIN_SPEED_FOR_HEADING = 0.4; // m/s ~ 1.5 km/h
           if (
             prevPointRef.current &&
-            spd != null &&
-            spd > MIN_SPEED_FOR_HEADING
+            effectiveSpeed != null &&
+            effectiveSpeed > MIN_SPEED_FOR_HEADING
           ) {
             const bearing = computeBearing(
               prevPointRef.current.latitude,
@@ -169,6 +214,9 @@ export default function TripScreen() {
             setHeading(bearing);
           }
           prevPointRef.current = { latitude, longitude };
+          prevFixTimeRef.current = loc.timestamp;
+
+          // ... phần animatedCoordRef.current / setRegion giữ nguyên, không đổi
 
           if (animatedCoordRef.current) {
             (animatedCoordRef.current.timing as any)({
@@ -325,6 +373,24 @@ export default function TripScreen() {
     ]);
   }, [tripId]);
 
+  const handleRate = useCallback(
+    async (value: number) => {
+      if (!tripId) return;
+      setRating(value);
+      setRatingSubmitting(true);
+      try {
+        await rateTrip(tripId, value);
+      } catch (err: any) {
+        console.log("rateTrip error:", err.response?.data, err.message);
+        // Không Alert - đánh giá là phụ, lỗi ở đây không nên chặn driver
+        // rời màn hình kết quả.
+      } finally {
+        setRatingSubmitting(false);
+      }
+    },
+    [tripId],
+  );
+
   const closeResultAndGoBack = () => {
     setResult(null); // đóng Modal component, animation fade tự chạy hết
     setTimeout(() => {
@@ -424,6 +490,29 @@ export default function TripScreen() {
             ) : (
               <Text style={styles.resultSub}>Đang chờ tính điểm rủi ro...</Text>
             )}
+
+            <View style={styles.starRow}>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <TouchableOpacity
+                  key={n}
+                  onPress={() => handleRate(n)}
+                  disabled={ratingSubmitting}
+                  hitSlop={8}
+                >
+                  <Ionicons
+                    name={n <= rating ? "star" : "star-outline"}
+                    size={32}
+                    color="#f59e0b"
+                  />
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.ratingHint}>
+              {rating > 0
+                ? "Cảm ơn bạn đã đánh giá!"
+                : "Chuyến đi này thế nào?"}
+            </Text>
+
             <TouchableOpacity
               style={styles.resultBtn}
               onPress={closeResultAndGoBack}
@@ -513,5 +602,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     borderRadius: 10,
   },
+  starRow: { flexDirection: "row", gap: 6, marginTop: 4 },
+  ratingHint: { fontSize: 12, color: "#6b7280" },
   resultBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
 });

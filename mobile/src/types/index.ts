@@ -30,6 +30,7 @@ export interface CurrentTrip {
   vehicle_type: VehicleType;
   started_at: string;
   scenario: string;
+  status: string; // 'pending' | 'ongoing' - dùng để phân biệt resume vào waiting.tsx hay trip/[id].tsx
 }
 
 export interface RiskScore {

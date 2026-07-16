@@ -16,12 +16,22 @@ export async function getCurrentTrip(): Promise<CurrentTrip | null> {
   return data;
 }
 
-export async function startTrip(
-  vehicleId: string,
-): Promise<{ tripId: string; vehicleId: number; driverId: string }> {
-  const { data } = await apiClient.post("/api/driver/trips/start", {
+export async function reserveTrip(vehicleId: string): Promise<{
+  tripId: string;
+  vehicleId: number;
+  driverId: string;
+  status: string;
+}> {
+  const { data } = await apiClient.post("/api/driver/trips/reserve", {
     vehicleId,
   });
+  return data;
+}
+
+export async function activateTrip(
+  tripId: string,
+): Promise<{ trip_id: string; vehicle_id: number; started_at: string }> {
+  const { data } = await apiClient.post(`/api/driver/trips/${tripId}/activate`);
   return data;
 }
 
@@ -32,6 +42,16 @@ export async function endTrip(tripId: string): Promise<{
   riskScore: RiskScore | null;
 }> {
   const { data } = await apiClient.post(`/api/driver/trips/${tripId}/end`);
+  return data;
+}
+
+export async function rateTrip(
+  tripId: string,
+  rating: number,
+): Promise<{ trip_id: string; driver_rating: number }> {
+  const { data } = await apiClient.post(`/api/driver/trips/${tripId}/rate`, {
+    rating,
+  });
   return data;
 }
 
