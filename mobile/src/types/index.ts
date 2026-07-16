@@ -13,6 +13,8 @@ export type VehicleType =
   | "tractor"
   | "duck";
 
+export type VehicleStatus = "available" | "incoming" | "renting";
+
 export interface Vehicle {
   vehicle_id: string;
   license_plate: string;
@@ -20,6 +22,7 @@ export interface Vehicle {
   vehicle_type: VehicleType;
   last_latitude: number | null;
   last_longitude: number | null;
+  status: VehicleStatus;
 }
 
 export interface CurrentTrip {

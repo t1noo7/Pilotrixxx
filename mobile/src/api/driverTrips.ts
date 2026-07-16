@@ -6,8 +6,8 @@ import type {
   RiskScore,
 } from "../types";
 
-export async function getAvailableVehicles(): Promise<Vehicle[]> {
-  const { data } = await apiClient.get("/api/driver/vehicles/available");
+export async function getVehicles(): Promise<Vehicle[]> {
+  const { data } = await apiClient.get("/api/driver/vehicles");
   return data;
 }
 
@@ -16,7 +16,11 @@ export async function getCurrentTrip(): Promise<CurrentTrip | null> {
   return data;
 }
 
-export async function reserveTrip(vehicleId: string): Promise<{
+export async function reserveTrip(
+  vehicleId: string,
+  pickupLatitude: number,
+  pickupLongitude: number,
+): Promise<{
   tripId: string;
   vehicleId: number;
   driverId: string;
@@ -24,6 +28,8 @@ export async function reserveTrip(vehicleId: string): Promise<{
 }> {
   const { data } = await apiClient.post("/api/driver/trips/reserve", {
     vehicleId,
+    pickupLatitude,
+    pickupLongitude,
   });
   return data;
 }

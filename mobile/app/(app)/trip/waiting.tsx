@@ -83,7 +83,7 @@ export default function WaitingScreen() {
       <Image source={DUCK_GIF} style={styles.duck} contentFit="contain" />
       {ready ? (
         <>
-          <Text style={styles.title}>Xe đã về tới gara! 🎉</Text>
+          <Text style={styles.title}>Xe đã tới nơi! 🎉</Text>
           <Text style={styles.subtitle}>
             Sẵn sàng bắt đầu chuyến đi của bạn
           </Text>
@@ -100,7 +100,7 @@ export default function WaitingScreen() {
         </>
       ) : (
         <>
-          <Text style={styles.title}>Xe đang trên đường về gara...</Text>
+          <Text style={styles.title}>Xe đang trên đường tới chỗ bạn...</Text>
           <Text style={styles.subtitle}>Vui lòng đợi trong giây lát 🦆</Text>
         </>
       )}
