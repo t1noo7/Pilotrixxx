@@ -73,11 +73,23 @@ def build_mqtt_client(client_id_suffix: str) -> mqtt.Client:
 
 
 def run_simulation(
-    device_ident: str, scenario: str, log_prefix: str = "", stop_event=None
+    device_ident: str,
+    scenario: str,
+    log_prefix: str = "",
+    stop_event=None,
+    target_box: dict | None = None,
+    start_lat: float | None = None,
+    start_lng: float | None = None,
+    immediate_target: bool = False,
 ):
     prefix = log_prefix or device_ident
+    if target_box is None:
+        target_box = {"lat": None, "lng": None}
+    # None = khong lien quan toi "di don driver"; True/False duoc set khi
+    # ket thuc vong lap ben duoi, de goi ben ngoai biet xe co thuc su toi
+    # noi hay chi la het gio ma van chua toi (fix bug bao "ready" gia).
+    target_box.setdefault("reached", None)
 
-    # 1. Bat dau trip
     trip_info = start_trip(device_ident, scenario)
     trip_id = trip_info["tripId"]
     vehicle_id = trip_info["vehicleId"]
@@ -86,37 +98,46 @@ def run_simulation(
     )
 
     try:
-        # 2. Setup MQTT
         mqtt_client = build_mqtt_client(prefix)
         topic = f"vehicles/{vehicle_id}/telemetry"
 
-        # 3. Khoi tao route + trang thai
-        route = RouteState()
+        route = RouteState(lat=start_lat, lng=start_lng)
         speed_limit = pick_speed_limit()
-        prev_speed = random.uniform(20, 40)  # toc do khoi dau
+        prev_speed = random.uniform(20, 40)
 
         duration = random.randint(TRIP_DURATION_MIN_SECONDS, TRIP_DURATION_MAX_SECONDS)
         num_points = duration // TELEMETRY_INTERVAL_SECONDS
         print(f"[{prefix}] Trip duration: {duration}s (~{num_points} diem)")
 
-        # 4. Loop publish telemetry
-        heading_to_depot = False
+        # Xe duoc goi di don driver ngay tu dau (khong can doi stop_event
+        # giua chung) - dung cho truong hop xe dang dung yen, khong co
+        # thread nao dang "lang thang" de ma ngat giua chung.
+        heading_to_target = False
+        if immediate_target and target_box is not None:
+            print(
+                f"[{prefix}] Duoc goi di don driver tai ({target_box['lat']}, {target_box['lng']})."
+            )
+            route.head_to_location(target_box["lat"], target_box["lng"])
+            heading_to_target = True
+
         for i in range(num_points):
-            if stop_event is not None and stop_event.is_set() and not heading_to_depot:
-                print(f"[{prefix}] Co driver dat xe - bat dau di ve depot.")
-                route.head_to_depot()
-                heading_to_depot = True
+            if stop_event is not None and stop_event.is_set() and not heading_to_target:
+                print(f"[{prefix}] Co driver dat xe - bat dau di don driver.")
+                route.head_to_location(target_box["lat"], target_box["lng"])
+                heading_to_target = True
 
             if (
-                heading_to_depot and route.distance_to_depot_km() < 0.05
-            ):  # ~50m coi nhu da toi
-                print(f"[{prefix}] Da ve depot - san sang cho driver nhan xe.")
+                heading_to_target
+                and route.distance_to_target_km(target_box["lat"], target_box["lng"])
+                < 0.05
+            ):
+                print(f"[{prefix}] Da toi noi don driver.")
+                target_box["reached"] = True
                 break
 
             point = generate_telemetry_point(scenario, speed_limit, prev_speed)
             prev_speed = point["speed"]
 
-            # Doi 1 doan duong moi (~moi 20 diem) - mo phong chuyen "doan duong"
             if i > 0 and i % 20 == 0:
                 speed_limit = pick_speed_limit()
 
@@ -154,15 +175,24 @@ def run_simulation(
             }
 
             mqtt_client.publish(topic, json.dumps(payload), qos=1)
-
             event_note = f" event={point['event_type']}" if point["event_type"] else ""
             print(
                 f"[{prefix}] [{i+1}/{num_points}] speed={point['speed']} limit={speed_limit}{event_note}"
             )
-
             time.sleep(TELEMETRY_INTERVAL_SECONDS)
+        else:
+            # for-else: chi chay khi vong lap het num_points MA KHONG break
+            # -> neu dang "di don driver" thi nghia la het gio ma chua toi noi.
+            if heading_to_target:
+                remaining = route.distance_to_target_km(
+                    target_box["lat"], target_box["lng"]
+                )
+                target_box["reached"] = False
+                print(
+                    f"[{prefix}] Het thoi gian chuyen nhung chua toi noi don driver "
+                    f"(con cach {remaining:.2f}km)."
+                )
 
-        # 5. Ket thuc trip
         mqtt_client.loop_stop()
         mqtt_client.disconnect()
         end_trip(trip_id)

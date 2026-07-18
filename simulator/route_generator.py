@@ -199,13 +199,13 @@ class RouteState:
         self.lat, self.lng, self.heading = self._position_at(self._dist_into_leg_km)
         return self.lat, self.lng, self.heading
 
-    def head_to_depot(self):
-        """Ep chang tiep theo di thang ve depot (START_LATITUDE/LONGITUDE)
-        thay vi chon huong ngau nhien - dung khi xe can 've gara' truoc
-        khi nhuong quyen cho driver that thue xe."""
-        coords = _fetch_osrm_route(self.lat, self.lng, START_LATITUDE, START_LONGITUDE)
+    def head_to_location(self, target_lat, target_lng):
+        """Ep chang tiep theo di thang ve 1 diem bat ky (thay vi chon huong
+        ngau nhien) - dung khi xe can di don driver tai vi tri ho chon,
+        thay cho khai niem 'depot' co dinh truoc day."""
+        coords = _fetch_osrm_route(self.lat, self.lng, target_lat, target_lng)
         if coords is None or len(coords) < 2:
-            coords = [(self.lat, self.lng), (START_LATITUDE, START_LONGITUDE)]
+            coords = [(self.lat, self.lng), (target_lat, target_lng)]
         coords[0] = (self.lat, self.lng)
 
         cum_dist = [0.0]
@@ -217,7 +217,5 @@ class RouteState:
         self._cum_dist_km = cum_dist
         self._dist_into_leg_km = 0.0
 
-    def distance_to_depot_km(self) -> float:
-        """Khoang cach con lai (km) toi depot - dung de biet khi nao xe
-        da 've gara' xong."""
-        return _haversine_km(self.lat, self.lng, START_LATITUDE, START_LONGITUDE)
+    def distance_to_target_km(self, target_lat, target_lng) -> float:
+        return _haversine_km(self.lat, self.lng, target_lat, target_lng)
