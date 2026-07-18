@@ -8,24 +8,33 @@ import { fleetControlNamespace, driverNamespace } from '../server.js';
 export const driverTripsRouter = express.Router();
 
 /**
- * GET /api/driver/vehicles/available
- * Danh sách xe hiện KHÔNG có trip 'ongoing' - driver chọn xe từ đây.
+ * GET /api/driver/vehicles
+ * Trả TOÀN BỘ xe kèm status tính toán ('available'/'incoming'/'renting')
+ * - không ẩn xe nào, để mobile tự hiện badge + khoảng cách, driver tự
+ * quyết định chọn xe nào (kể cả xe đang mô phỏng nền safe/moderate/
+ * dangerous vẫn tính là 'available', vì driver book được ngay).
  */
-driverTripsRouter.get('/vehicles/available', async (req, res) => {
+driverTripsRouter.get('/vehicles', async (req, res) => {
     try {
         const result = await pool.query(`
             SELECT v.vehicle_id, v.license_plate, v.model, v.vehicle_type,
-                   v.last_latitude, v.last_longitude
+                   v.last_latitude, v.last_longitude,
+                   CASE
+                       WHEN m.status = 'ongoing' THEN 'renting'
+                       WHEN m.status = 'pending' THEN 'incoming'
+                       ELSE 'available'
+                   END AS status
             FROM vehicles v
-            WHERE NOT EXISTS (
-    SELECT 1 FROM trips t
-    WHERE t.vehicle_id = v.vehicle_id AND t.status IN ('ongoing', 'pending')
-)
+            LEFT JOIN LATERAL (
+                SELECT status FROM trips
+                WHERE vehicle_id = v.vehicle_id AND scenario = 'manual' AND status IN ('ongoing', 'pending')
+                ORDER BY trip_id DESC LIMIT 1
+            ) m ON true
             ORDER BY v.vehicle_id
         `);
         res.json(result.rows);
     } catch (err) {
-        console.error('[GET /driver/vehicles/available] Error:', err.message);
+        console.error('[GET /driver/vehicles] Error:', err.message);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
@@ -59,14 +68,17 @@ driverTripsRouter.get('/trips/current', async (req, res) => {
  * depot trước, báo sẵn sàng qua Socket.IO ('vehicle:ready' -> /driver ns).
  */
 driverTripsRouter.post('/trips/reserve', async (req, res) => {
-    const { vehicleId } = req.body;
+    const { vehicleId, pickupLatitude, pickupLongitude } = req.body;
     if (!vehicleId) return res.status(400).json({ error: 'vehicleId là bắt buộc' });
+    if (typeof pickupLatitude !== 'number' || typeof pickupLongitude !== 'number') {
+        return res.status(400).json({ error: 'pickupLatitude/pickupLongitude là bắt buộc' });
+    }
 
     const driverId = req.driver.driverId;
     const client = await pool.connect();
     try {
         const existing = await client.query(
-            `SELECT trip_id FROM trips WHERE driver_id = $1 AND status IN ('ongoing', 'pending')`,
+            `SELECT trip_id FROM trips WHERE driver_id = $1 AND scenario = 'manual' AND status IN ('ongoing', 'pending')`,
             [driverId]
         );
         if (existing.rows.length > 0) {
@@ -74,7 +86,7 @@ driverTripsRouter.post('/trips/reserve', async (req, res) => {
         }
 
         const vehicleBusy = await client.query(
-            `SELECT trip_id FROM trips WHERE vehicle_id = $1 AND status IN ('ongoing', 'pending')`,
+            `SELECT trip_id FROM trips WHERE vehicle_id = $1 AND scenario = 'manual' AND status IN ('ongoing', 'pending')`,
             [vehicleId]
         );
         if (vehicleBusy.rows.length > 0) {
@@ -82,14 +94,16 @@ driverTripsRouter.post('/trips/reserve', async (req, res) => {
         }
 
         const tripRes = await client.query(
-            `INSERT INTO trips (driver_id, vehicle_id, scenario, status, started_at)
-             VALUES ($1, $2, 'manual', 'pending', now())
+            `INSERT INTO trips (driver_id, vehicle_id, scenario, status, started_at, pickup_latitude, pickup_longitude)
+             VALUES ($1, $2, 'manual', 'pending', now(), $3, $4)
              RETURNING trip_id`,
-            [driverId, vehicleId]
+            [driverId, vehicleId, pickupLatitude, pickupLongitude]
         );
         const tripId = tripRes.rows[0].trip_id;
 
-        fleetControlNamespace.emit('vehicle:requested', { vehicleId, tripId });
+        fleetControlNamespace.emit('vehicle:requested', {
+            vehicleId, tripId, pickupLat: pickupLatitude, pickupLng: pickupLongitude,
+        });
 
         res.status(201).json({ tripId, vehicleId, driverId, status: 'pending' });
     } catch (err) {
