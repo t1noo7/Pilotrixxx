@@ -18,6 +18,12 @@ import VehicleIcon from "../../../src/components/VehicleIcon";
 import { useTrip } from "../../../src/context/TripContext";
 import type { RiskScore, VehicleType } from "../../../src/types";
 import { Accelerometer } from "expo-sensors";
+import { computeBearing, computeDistanceMeters } from "../../../src/utils/geo";
+import {
+  useDemoRouteSimulation,
+  DemoStatus,
+} from "../../../src/hooks/useDemoRouteSimulation";
+import type { RoutePoint } from "../../../src/api/osrm";
 
 const TELEMETRY_INTERVAL_MS = 8000;
 
@@ -33,58 +39,36 @@ const RISK_LABEL: Record<string, string> = {
   dangerous: "Nguy hiểm",
 };
 
-// Tính hướng di chuyển (độ, 0-360, 0=Bắc) từ 2 toạ độ liên tiếp - đáng tin
-// hơn heading do GPS/Simulator báo về (dễ bị nhiễu, đặc biệt lúc vào cua ở
-// nút giao hoặc lúc mô phỏng route trên Simulator).
-function computeBearing(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number,
-): number {
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const toDeg = (r: number) => (r * 180) / Math.PI;
-  const dLon = toRad(lon2 - lon1);
-  const y = Math.sin(dLon) * Math.cos(toRad(lat2));
-  const x =
-    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
-    Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
-  const brng = toDeg(Math.atan2(y, x));
-  return (brng + 360) % 360;
-}
-
-// Tính khoảng cách (mét) giữa 2 toạ độ - dùng làm fallback tự tính tốc độ
-// khi coords.speed do he thong tra ve khong dang tin (null/am - hay gap
-// tren Simulator dung xcrun simctl location set, vi lenh nay chi "day"
-// toa do tuc thoi, khong mo phong truong speed nhu GPS that).
-function computeDistanceMeters(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number,
-): number {
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
+// computeBearing / computeDistanceMeters da chuyen sang src/utils/geo.ts
+// de dung lai duoc cho ca useDemoRouteSimulation (che do demo).
 
 export default function TripScreen() {
   const {
     id: tripId,
     vehicleType: vehicleTypeParam,
     startedAt,
+    demoMode: demoModeParam,
+    destLat: destLatParam,
+    destLng: destLngParam,
   } = useLocalSearchParams<{
     id: string;
     vehicleType?: string;
     startedAt?: string;
+    demoMode?: string;
+    destLat?: string;
+    destLng?: string;
   }>();
   const vehicleType: VehicleType = (vehicleTypeParam as VehicleType) || "sedan";
   const { clearOngoingTrip } = useTrip();
+
+  // Che do demo: man "chon diem den" (truoc man nay) da chon san diem
+  // den + bat demoMode="1" - man nay khong dung GPS that nua, thay bang
+  // route mo phong (useDemoRouteSimulation) chay hoan toan tren app.
+  const demoMode = demoModeParam === "1";
+  const destination: RoutePoint | null =
+    demoMode && destLatParam && destLngParam
+      ? { latitude: parseFloat(destLatParam), longitude: parseFloat(destLngParam) }
+      : null;
 
   const [permissionGranted, setPermissionGranted] = useState<boolean | null>(
     null,
@@ -101,6 +85,10 @@ export default function TripScreen() {
   } | null>(null);
   const [rating, setRating] = useState(0);
   const [ratingSubmitting, setRatingSubmitting] = useState(false);
+  // Diem xuat phat cho route mo phong - lay 1 lan qua getCurrentPositionAsync
+  // (khong can theo doi lien tuc nhu GPS that, vi vi tri xe se do route
+  // simulator tu tinh tiep, khong phai do may that di chuyen).
+  const [demoStart, setDemoStart] = useState<RoutePoint | null>(null);
 
   const startTimeRef = useRef(
     startedAt && !Number.isNaN(new Date(startedAt).getTime())
@@ -139,7 +127,116 @@ export default function TripScreen() {
     lateral: 0,
   });
 
-  // Xin quyền vị trí + bắt đầu theo dõi GPS liên tục
+  // Ham cap nhat vi tri DUNG CHUNG cho ca 2 nguon: GPS that (watchPositionAsync)
+  // va route mo phong (useDemoRouteSimulation). Truoc day logic nay nam
+  // thang trong callback cua watchPositionAsync - tach ra de tai dung.
+  const applyPositionUpdate = useCallback(
+    (
+      latitude: number,
+      longitude: number,
+      rawSpeed: number | null,
+      rawHeading: number | null,
+      accuracy: number | null,
+    ) => {
+      // coords.speed co the null/am khi khong dang tin (thiet bi that GPS yeu,
+      // hoac Simulator dung simctl set khong mo phong truong nay) - fallback
+      // tu tinh bang khoang cach/delta-time giua 2 lan cap nhat lien tiep.
+      let effectiveSpeed = rawSpeed;
+      if (
+        (effectiveSpeed == null || effectiveSpeed < 0) &&
+        prevPointRef.current &&
+        prevFixTimeRef.current != null
+      ) {
+        const dist = computeDistanceMeters(
+          prevPointRef.current.latitude,
+          prevPointRef.current.longitude,
+          latitude,
+          longitude,
+        );
+        const dtSec = (Date.now() - prevFixTimeRef.current) / 1000;
+        if (dtSec > 0) {
+          effectiveSpeed = dist / dtSec;
+        }
+      }
+
+      lastCoordsRef.current = {
+        latitude,
+        longitude,
+        speed: effectiveSpeed,
+        heading: rawHeading,
+        accuracy,
+      };
+      setSpeed(effectiveSpeed);
+
+      const MIN_SPEED_FOR_HEADING = 0.4; // m/s ~ 1.5 km/h
+      if (
+        prevPointRef.current &&
+        effectiveSpeed != null &&
+        effectiveSpeed > MIN_SPEED_FOR_HEADING
+      ) {
+        const bearing = computeBearing(
+          prevPointRef.current.latitude,
+          prevPointRef.current.longitude,
+          latitude,
+          longitude,
+        );
+        setHeading(bearing);
+      } else if (rawHeading != null) {
+        // Che do demo: route simulator da tinh san huong tu doan polyline
+        // OSRM, dung truc tiep thay vi doi toc do vuot MIN_SPEED_FOR_HEADING.
+        setHeading(rawHeading);
+      }
+      prevPointRef.current = { latitude, longitude };
+      prevFixTimeRef.current = Date.now();
+
+      if (animatedCoordRef.current) {
+        (animatedCoordRef.current.timing as any)({
+          latitude,
+          longitude,
+          duration: 900,
+          useNativeDriver: false,
+        }).start();
+      } else {
+        animatedCoordRef.current = new AnimatedRegion({
+          latitude,
+          longitude,
+          latitudeDelta: 0,
+          longitudeDelta: 0,
+        });
+      }
+
+      setRegion((prev) => ({
+        latitude,
+        longitude,
+        latitudeDelta: prev?.latitudeDelta ?? 0.01,
+        longitudeDelta: prev?.longitudeDelta ?? 0.01,
+      }));
+    },
+    [],
+  );
+
+  // Route mo phong (chi hoat dong khi demoMode + da co diem xuat phat) -
+  // tu goi OSRM, tu noi suy vi tri moi giay, giam toc o khuc cua, bao
+  // ETA/khoang cach con lai. Khi khong phai demoMode, start/destination
+  // deu null nen hook nay khong lam gi ca (an toan, khong anh huong GPS that).
+  const { status: demoStatus, distanceRemainingKm, etaSeconds } =
+    useDemoRouteSimulation(
+      demoMode ? demoStart : null,
+      demoMode ? destination : null,
+      ({ latitude, longitude, speedMps, headingDeg }) => {
+        applyPositionUpdate(latitude, longitude, speedMps, headingDeg, null);
+      },
+      () => {
+        Alert.alert(
+          "Đã tới nơi 🎉",
+          "Chuyến đi demo đã hoàn tất, bấm \"Kết thúc chuyến\" để xem kết quả nhé.",
+        );
+      },
+    );
+
+  // Xin quyen vi tri. Che do that: bat watchPositionAsync theo doi lien
+  // tuc. Che do demo: chi can xin quyen + lay vi tri 1 LAN de lam diem
+  // xuat phat cho route simulator, KHONG bat watchPositionAsync.
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -153,6 +250,22 @@ export default function TripScreen() {
         return;
       }
       setPermissionGranted(true);
+
+      if (demoMode) {
+        try {
+          const loc = await Location.getCurrentPositionAsync({});
+          setDemoStart({
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+          });
+        } catch {
+          Alert.alert(
+            "Không lấy được vị trí xuất phát",
+            "Thử lại hoặc quay lại chọn GPS thật",
+          );
+        }
+        return;
+      }
 
       watchSubRef.current = await Location.watchPositionAsync(
         {
@@ -168,78 +281,7 @@ export default function TripScreen() {
             heading: gpsHeading,
             accuracy,
           } = loc.coords;
-
-          // coords.speed co the null/am khi khong dang tin (thiet bi that GPS yeu,
-          // hoac Simulator dung simctl set khong mo phong truong nay) - fallback
-          // tu tinh bang khoang cach/delta-time giua 2 lan doc GPS lien tiep.
-          let effectiveSpeed = spd;
-          if (
-            (effectiveSpeed == null || effectiveSpeed < 0) &&
-            prevPointRef.current &&
-            prevFixTimeRef.current != null
-          ) {
-            const dist = computeDistanceMeters(
-              prevPointRef.current.latitude,
-              prevPointRef.current.longitude,
-              latitude,
-              longitude,
-            );
-            const dtSec = (loc.timestamp - prevFixTimeRef.current) / 1000;
-            if (dtSec > 0) {
-              effectiveSpeed = dist / dtSec;
-            }
-          }
-
-          lastCoordsRef.current = {
-            latitude,
-            longitude,
-            speed: effectiveSpeed,
-            heading: gpsHeading,
-            accuracy,
-          };
-          setSpeed(effectiveSpeed);
-
-          const MIN_SPEED_FOR_HEADING = 0.4; // m/s ~ 1.5 km/h
-          if (
-            prevPointRef.current &&
-            effectiveSpeed != null &&
-            effectiveSpeed > MIN_SPEED_FOR_HEADING
-          ) {
-            const bearing = computeBearing(
-              prevPointRef.current.latitude,
-              prevPointRef.current.longitude,
-              latitude,
-              longitude,
-            );
-            setHeading(bearing);
-          }
-          prevPointRef.current = { latitude, longitude };
-          prevFixTimeRef.current = loc.timestamp;
-
-          // ... phần animatedCoordRef.current / setRegion giữ nguyên, không đổi
-
-          if (animatedCoordRef.current) {
-            (animatedCoordRef.current.timing as any)({
-              latitude,
-              longitude,
-              duration: 1800, // hơi ngắn hơn timeInterval (2000ms) để trượt xong trước lần cập nhật tiếp theo
-              useNativeDriver: false,
-            }).start();
-          } else {
-            animatedCoordRef.current = new AnimatedRegion({
-              latitude,
-              longitude,
-              latitudeDelta: 0,
-              longitudeDelta: 0,
-            });
-          }
-
-          setRegion((prev) => ({
-            latitude,
-            longitude,
-            latitudeDelta: prev?.latitudeDelta ?? 0.01,
-            longitudeDelta: prev?.longitudeDelta ?? 0.01,
-          }));
+          applyPositionUpdate(latitude, longitude, spd, gpsHeading, accuracy);
         },
       );
     })();
@@ -247,7 +289,8 @@ export default function TripScreen() {
     return () => {
       watchSubRef.current?.remove();
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [demoMode]);
 
   // Đọc accelerometer điện thoại - giả định điện thoại gắn cố định trên
   // táp-lô (dashboard mount), tư thế đứng (portrait), màn hình hướng về
@@ -255,10 +298,12 @@ export default function TripScreen() {
   // (portrait) ~ hướng tiến/lùi của xe -> rapid_accel/brake_intensity.
   // Trục x ~ hướng ngang (trái/phải) -> sharp_turn. Đây là giả định hợp lý
   // cho scope đồ án, khác với thiết bị IoT bắt vít cố định vào khung xe.
+  // Luu y (che do demo): dien thoai thuong dat yen 1 cho trong luc demo,
+  // nen accelerometer se gan nhu bang 0 - rapid_accel/hard_brake se KHONG
+  // duoc ghi nhan trong che do nay (han che da biet, ghi vao bao cao).
   useEffect(() => {
     Accelerometer.setUpdateInterval(100); // 10Hz
 
-    const GRAVITY_G = 1.0; // trừ trọng lực để chỉ còn gia tốc do chuyển động
     const sub = Accelerometer.addListener(({ x, y }) => {
       // accel_y dương = đang tăng tốc về phía trước, âm = đang giảm tốc (phanh)
       const forward = y;
@@ -297,7 +342,9 @@ export default function TripScreen() {
     return () => clearTimeout(t);
   }, []);
 
-  // Gửi telemetry định kỳ lên backend
+  // Gửi telemetry định kỳ lên backend - khong quan tam nguon (GPS that
+  // hay route mo phong), luon doc tu lastCoordsRef (applyPositionUpdate
+  // ghi vao do cho ca 2 nguon).
   useEffect(() => {
     if (!tripId) return;
     telemetryTimerRef.current = setInterval(() => {
@@ -402,8 +449,38 @@ export default function TripScreen() {
     return <LoadingOverlay visible message="Đang xin quyền vị trí..." />;
   }
 
+  if (demoMode && (demoStatus === "loading" || demoStatus === "idle")) {
+    return (
+      <LoadingOverlay visible message="Đang tính lộ trình demo qua OSRM..." />
+    );
+  }
+
+  if (demoMode && demoStatus === "error") {
+    return (
+      <View style={styles.errorContainer}>
+        <Ionicons name="warning-outline" size={40} color="#ef4444" />
+        <Text style={styles.errorText}>
+          Không lấy được lộ trình demo (OSRM lỗi hoặc mất mạng)
+        </Text>
+        <TouchableOpacity
+          style={styles.resultBtn}
+          onPress={() => router.back()}
+        >
+          <Text style={styles.resultBtnText}>Quay lại chọn điểm đến</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   if (!region) {
-    return <LoadingOverlay visible message="Đang lấy vị trí GPS..." />;
+    return (
+      <LoadingOverlay
+        visible
+        message={
+          demoMode ? "Đang lấy vị trí xuất phát..." : "Đang lấy vị trí GPS..."
+        }
+      />
+    );
   }
 
   const riskLevel = result?.riskScore?.final?.risk_level;
@@ -433,6 +510,15 @@ export default function TripScreen() {
           <Ionicons name="time-outline" size={18} color="#2563eb" />
           <Text style={styles.statValue}>{formatElapsed(elapsedSec)}</Text>
         </View>
+        {demoMode && distanceRemainingKm != null && (
+          <View style={styles.statBox}>
+            <Ionicons name="navigate-outline" size={18} color="#2563eb" />
+            <Text style={styles.statValue}>
+              {distanceRemainingKm.toFixed(1)} km
+              {etaSeconds != null ? ` · ${Math.ceil(etaSeconds / 60)}p` : ""}
+            </Text>
+          </View>
+        )}
       </View>
 
       {__DEV__ && (
@@ -536,6 +622,7 @@ const styles = StyleSheet.create({
     right: 16,
     flexDirection: "row",
     gap: 12,
+    flexWrap: "wrap",
   },
   statBox: {
     flexDirection: "row",
@@ -551,6 +638,15 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   statValue: { fontSize: 14, fontWeight: "600", color: "#111827" },
+  errorContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    gap: 12,
+    backgroundColor: "#f9fafb",
+  },
+  errorText: { fontSize: 14, color: "#374151", textAlign: "center" },
   endBtn: {
     position: "absolute",
     bottom: 32,

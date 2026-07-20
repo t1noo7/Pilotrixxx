@@ -61,13 +61,12 @@ export default function WaitingScreen() {
     try {
       await activateTrip(tripId);
       await refreshOngoingTrip();
+      // Khong vao thang trip/[id] nua - qua man "chon diem den" truoc,
+      // man do se tu quyet dinh dung GPS that hay che do demo roi moi
+      // dieu huong tiep vao trip/[id].
       router.replace({
-        pathname: "/(app)/trip/[id]",
-        params: {
-          id: tripId,
-          vehicleType,
-          startedAt: new Date().toISOString(),
-        },
+        pathname: "/(app)/trip/destination",
+        params: { id: tripId, vehicleType },
       });
     } catch (err: any) {
       Alert.alert(
