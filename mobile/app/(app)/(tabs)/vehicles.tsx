@@ -160,7 +160,7 @@ export default function VehiclesScreen() {
   useFocusEffect(
     useCallback(() => {
       load();
-      if (!driverLocation) fetchGpsLocation();
+      fetchGpsLocation();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [load]),
   );
