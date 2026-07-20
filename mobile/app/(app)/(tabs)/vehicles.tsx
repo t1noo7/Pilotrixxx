@@ -1,4 +1,4 @@
-import { useCallback, useState, useMemo } from "react";
+import { useCallback, useState, useMemo, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -51,7 +51,8 @@ function distanceKm(
 type Coords = { latitude: number; longitude: number };
 
 export default function VehiclesScreen() {
-  const { refreshOngoingTrip } = useTrip();
+  const { refreshOngoingTrip, lastKnownLocation, setLastKnownLocation } =
+    useTrip();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -157,10 +158,21 @@ export default function VehiclesScreen() {
     [refreshOngoingTrip],
   );
 
+  const lastKnownLocationRef = useRef(lastKnownLocation);
+  useEffect(() => {
+    lastKnownLocationRef.current = lastKnownLocation;
+  }, [lastKnownLocation]);
+
   useFocusEffect(
     useCallback(() => {
       load();
-      fetchGpsLocation();
+      const loc = lastKnownLocationRef.current;
+      if (loc) {
+        setDriverLocation(loc);
+        setLastKnownLocation(null);
+      } else {
+        fetchGpsLocation();
+      }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [load]),
   );

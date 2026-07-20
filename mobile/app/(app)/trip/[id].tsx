@@ -59,7 +59,7 @@ export default function TripScreen() {
     destLng?: string;
   }>();
   const vehicleType: VehicleType = (vehicleTypeParam as VehicleType) || "sedan";
-  const { clearOngoingTrip } = useTrip();
+  const { clearOngoingTrip, setLastKnownLocation } = useTrip();
 
   // Che do demo: man "chon diem den" (truoc man nay) da chon san diem
   // den + bat demoMode="1" - man nay khong dung GPS that nua, thay bang
@@ -67,7 +67,10 @@ export default function TripScreen() {
   const demoMode = demoModeParam === "1";
   const destination: RoutePoint | null =
     demoMode && destLatParam && destLngParam
-      ? { latitude: parseFloat(destLatParam), longitude: parseFloat(destLngParam) }
+      ? {
+          latitude: parseFloat(destLatParam),
+          longitude: parseFloat(destLngParam),
+        }
       : null;
 
   const [permissionGranted, setPermissionGranted] = useState<boolean | null>(
@@ -219,20 +222,23 @@ export default function TripScreen() {
   // tu goi OSRM, tu noi suy vi tri moi giay, giam toc o khuc cua, bao
   // ETA/khoang cach con lai. Khi khong phai demoMode, start/destination
   // deu null nen hook nay khong lam gi ca (an toan, khong anh huong GPS that).
-  const { status: demoStatus, distanceRemainingKm, etaSeconds } =
-    useDemoRouteSimulation(
-      demoMode ? demoStart : null,
-      demoMode ? destination : null,
-      ({ latitude, longitude, speedMps, headingDeg }) => {
-        applyPositionUpdate(latitude, longitude, speedMps, headingDeg, null);
-      },
-      () => {
-        Alert.alert(
-          "Đã tới nơi 🎉",
-          "Chuyến đi demo đã hoàn tất, bấm \"Kết thúc chuyến\" để xem kết quả nhé.",
-        );
-      },
-    );
+  const {
+    status: demoStatus,
+    distanceRemainingKm,
+    etaSeconds,
+  } = useDemoRouteSimulation(
+    demoMode ? demoStart : null,
+    demoMode ? destination : null,
+    ({ latitude, longitude, speedMps, headingDeg }) => {
+      applyPositionUpdate(latitude, longitude, speedMps, headingDeg, null);
+    },
+    () => {
+      Alert.alert(
+        "Đã tới nơi 🎉",
+        'Chuyến đi demo đã hoàn tất, bấm "Kết thúc chuyến" để xem kết quả nhé.',
+      );
+    },
+  );
 
   // Xin quyen vi tri. Che do that: bat watchPositionAsync theo doi lien
   // tuc. Che do demo: chi can xin quyen + lay vi tri 1 LAN de lam diem
@@ -405,6 +411,12 @@ export default function TripScreen() {
           try {
             const res = await endTrip(tripId);
             clearOngoingTrip();
+            if (lastCoordsRef.current) {
+              setLastKnownLocation({
+                latitude: lastCoordsRef.current.latitude,
+                longitude: lastCoordsRef.current.longitude,
+              });
+            }
             setResult({ riskScore: res.riskScore });
             setEnding(false);
           } catch (err: any) {
