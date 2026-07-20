@@ -72,8 +72,8 @@ tripsRouter.post('/start', async (req, res) => {
     if (!deviceIdent || !scenario) {
         return res.status(400).json({ error: 'deviceIdent va scenario la bat buoc' });
     }
-    if (!['safe', 'moderate', 'dangerous'].includes(scenario)) {
-        return res.status(400).json({ error: 'scenario phai la safe | moderate | dangerous' });
+    if (!['safe', 'moderate', 'dangerous', 'reposition'].includes(scenario)) {
+        return res.status(400).json({ error: 'scenario phai la safe | moderate | dangerous | reposition' });
     }
 
     const client = await pool.connect();
