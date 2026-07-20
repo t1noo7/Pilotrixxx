@@ -31,32 +31,81 @@ from route_generator import RouteState
 from scenario import generate_telemetry_point, pick_speed_limit
 
 
+def _post_with_retry(
+    url: str,
+    json_body: dict | None = None,
+    max_attempts: int = 3,
+    backoff_seconds: float = 2.0,
+    timeout: float = 15.0,
+):
+    """POST voi tu dong thu lai cho loi HTTP THOANG QUA (5xx tu Render, mat
+    ket noi, timeout) - Render free tier thinh thoang tu restart/cold-start
+    giua chung gay loi ngan han, khong phai loi logic that (vd 502 Bad
+    Gateway luc dang end_trip). KHONG retry loi 4xx (client error - vd
+    400/404/409): retry lai van sai y het, chi ton thoi gian - raise ngay."""
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = requests.post(url, json=json_body, timeout=timeout)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            last_exc = e
+        else:
+            if resp.status_code < 500:
+                if not resp.ok:
+                    print(
+                        f"[http-retry] Backend tra loi {resp.status_code} cho {url}: {resp.text}"
+                    )
+                resp.raise_for_status()  # loi 4xx (neu co) - raise ngay, khong retry
+                return resp
+            print(
+                f"[http-retry] Backend tra loi {resp.status_code} cho {url}: {resp.text}"
+            )
+            last_exc = requests.exceptions.HTTPError(
+                f"{resp.status_code} Server Error for url: {url}", response=resp
+            )
+
+        if attempt < max_attempts:
+            print(
+                f"[http-retry] Loi tam thoi goi {url} (lan {attempt}/{max_attempts}): "
+                f"{last_exc} - thu lai sau {backoff_seconds}s"
+            )
+            time.sleep(backoff_seconds)
+
+    if last_exc is None:
+        raise RuntimeError(
+            f"_post_with_retry that bai nhung khong ro nguyen nhan cho {url}"
+        )
+    raise last_exc
+
+
 def start_trip(device_ident: str, scenario: str) -> dict:
-    """Goi POST /api/trips/start, tra ve {tripId, vehicleId, driverId}."""
+    """Goi POST /api/trips/start, tra ve {tripId, vehicleId, driverId}.
+    Tu retry neu Render tra loi 5xx/mat ket noi thoang qua."""
     url = f"{BACKEND_URL}/api/trips/start"
-    resp = requests.post(url, json={"deviceIdent": device_ident, "scenario": scenario})
-    if not resp.ok:
-        print(f"[start_trip] Backend tra loi {resp.status_code}: {resp.text}")
-    resp.raise_for_status()
+    resp = _post_with_retry(
+        url, json_body={"deviceIdent": device_ident, "scenario": scenario}
+    )
     return resp.json()
 
 
 def end_trip(trip_id: int):
-    """Goi POST /api/trips/{tripId}/end."""
+    """Goi POST /api/trips/{tripId}/end. Tu retry neu Render tra loi
+    5xx/mat ket noi thoang qua."""
     url = f"{BACKEND_URL}/api/trips/{trip_id}/end"
-    resp = requests.post(url)
-    resp.raise_for_status()
+    resp = _post_with_retry(url)
     return resp.json()
 
 
 def abort_trip(trip_id: int):
     """Danh dau trip la 'aborted' khi simulation loi giua chung (vd MQTT
     khong ket noi duoc) - tranh trip bi ket mai o status='ongoing', chan
-    lan chay sau cua chinh xe do (409 Conflict)."""
+    lan chay sau cua chinh xe do (409 Conflict). Tu retry loi 5xx/mat ket
+    noi thoang qua; neu het luot retry van loi thi CHAP NHAN bo cuoc va
+    chi print - day la duong cuu vot cuoi cung, khong de no raise tiep lam
+    crash them mot lan nua."""
     try:
         url = f"{BACKEND_URL}/api/trips/{trip_id}/abort"
-        resp = requests.post(url)
-        resp.raise_for_status()
+        _post_with_retry(url)
     except Exception as e:
         print(f"[abort_trip] Khong abort duoc trip {trip_id}: {e}")
 
