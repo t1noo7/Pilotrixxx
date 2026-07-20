@@ -35,6 +35,8 @@ def start_trip(device_ident: str, scenario: str) -> dict:
     """Goi POST /api/trips/start, tra ve {tripId, vehicleId, driverId}."""
     url = f"{BACKEND_URL}/api/trips/start"
     resp = requests.post(url, json={"deviceIdent": device_ident, "scenario": scenario})
+    if not resp.ok:
+        print(f"[start_trip] Backend tra loi {resp.status_code}: {resp.text}")
     resp.raise_for_status()
     return resp.json()
 

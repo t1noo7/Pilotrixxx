@@ -27,7 +27,7 @@ SCENARIOS = ["safe", "moderate", "dangerous"]
 running = {}  # device_ident -> {"thread": Thread, "stop_event": Event}
 lock = threading.Lock()
 
-sio = socketio.Client()
+sio = socketio.Client(request_timeout=30)
 
 
 def get_fleet_mapping() -> list[dict]:
@@ -195,7 +195,7 @@ def relocate_then_release(
 
 def register_handlers(fleet: list[dict]):
     def on_requested(data):
-        vehicle_id = data["vehicleId"]
+        vehicle_id = int(data["vehicleId"])
         device_ident = device_for_vehicle(vehicle_id, fleet)
         if device_ident is None:
             return
@@ -206,22 +206,20 @@ def register_handlers(fleet: list[dict]):
         ).start()
 
     def on_returned(data):
-        # KHONG tu resume gia lap nua - xe dau nguyen tai vi tri driver
-        # vua tra, cho den khi co driver khac book moi di tiep.
         print(
             f"[fleet] Xe vehicle_id={data['vehicleId']} da duoc tra, dung yen cho luot sau."
         )
 
-    sio.on("vehicle:requested", on_requested)
-    sio.on("vehicle:returned", on_returned)
+    sio.on("vehicle:requested", on_requested, namespace="/fleet-control")
+    sio.on("vehicle:returned", on_returned, namespace="/fleet-control")
 
 
-@sio.event
+@sio.event(namespace="/fleet-control")
 def connect():
     print("[fleet] Da ket noi toi /fleet-control.")
 
 
-@sio.event
+@sio.event(namespace="/fleet-control")
 def connect_error(data):
     print(f"[fleet] Loi ket noi /fleet-control: {data}")
 
@@ -230,9 +228,8 @@ def main():
     fleet = get_fleet_mapping()
 
     socket_url = BACKEND_URL.replace("http://", "ws://").replace("https://", "wss://")
-    # python-socketio tu convert lai giao thuc that su, truyen http(s) binh
-    # thuong cung duoc - giu nguyen BACKEND_URL cho don gian:
     register_handlers(fleet)
+
     sio.connect(
         BACKEND_URL,
         namespaces=["/fleet-control"],
