@@ -297,10 +297,20 @@ driverTripsRouter.get('/trips/history', async (req, res) => {
  */
 export async function handleVehicleReady({ vehicleId }) {
     try {
+        // Ghi lai xuong DB TRUOC khi emit - "xe da toi" phai la trang thai
+        // ben vung (query lai duoc bat cu luc nao), khong chi ton tai
+        // thoang qua tren socket. Neu chi emit ma khong ghi DB, mobile app
+        // bi kill/mo lai dung luc nay se mat tin hieu vinh vien (dung
+        // nguyen tac "fire-and-forget Socket.IO" da ghi nhan o checkpoint -
+        // ap dung ca cho chieu backend -> mobile, khong chi Python -> backend).
         const result = await pool.query(
-            `SELECT trip_id, driver_id FROM trips
-             WHERE vehicle_id = $1 AND status = 'pending'
-             ORDER BY created_at DESC LIMIT 1`,
+            `UPDATE trips SET vehicle_ready_at = now()
+             WHERE trip_id = (
+                 SELECT trip_id FROM trips
+                 WHERE vehicle_id = $1 AND status = 'pending'
+                 ORDER BY created_at DESC LIMIT 1
+             )
+             RETURNING trip_id, driver_id`,
             [vehicleId]
         );
         if (result.rows.length === 0) {
