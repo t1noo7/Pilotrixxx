@@ -24,9 +24,20 @@ FLEET_CONTROL_SECRET = _require_env("FLEET_CONTROL_SECRET")
 # --- Telemetry timing ---
 TELEMETRY_INTERVAL_SECONDS = 5  # tan suat gui, theo mqtt_payload_schema.md
 
-# --- Trip duration: random 5-15 phut ---
+# --- Trip duration: random 5-15 phut (dung cho trip patrol binh thuong:
+# safe/moderate/dangerous - giu random de da dang du lieu ML) ---
 TRIP_DURATION_MIN_SECONDS = 5 * 60
 TRIP_DURATION_MAX_SECONDS = 15 * 60
+
+# --- Trip duration cho 'reposition' (xe tu lai di don driver): dung ETA
+# thuc te tu OSRM (giay) nhan voi he so an toan ngau nhien trong khoang
+# nay, thay vi random co dinh 5-15p khong lien quan gi den quang duong
+# thuc te - tranh bi cat ngang giua chung khi quang duong xa hon 1 chut.
+REPOSITION_ETA_MIN_FACTOR = 1.5
+REPOSITION_ETA_MAX_FACTOR = 2.0
+# San duration toi thieu (giay) - phong truong hop ETA qua nho (xe da gan
+# sat driver) khien num_points ve 0 hoac qua it diem telemetry.
+REPOSITION_MIN_DURATION_SECONDS = 30
 
 # --- Diem bat dau tuyen duong (gan Dai hoc Mo - Dia chat, Bac Tu Liem, Ha Noi) ---
 START_LATITUDE = 21.0469
@@ -50,16 +61,24 @@ SCENARIO_PARAMS = {
     "safe": {
         "speed_range": (25, 45),
         "event_probability": 0.03,
-        "max_overspeed_ratio": 1.05,  # vuot toc do toi da 5% so speed_limit
+        "max_overspeed_ratio": 1.05,
     },
     "moderate": {
         "speed_range": (35, 60),
         "event_probability": 0.12,
-        "max_overspeed_ratio": 1.20,  # vuot toc do toi da 20%
+        "max_overspeed_ratio": 1.20,
     },
     "dangerous": {
         "speed_range": (45, 90),
         "event_probability": 0.30,
-        "max_overspeed_ratio": 1.50,  # vuot toc do toi da 50%
+        "max_overspeed_ratio": 1.50,
+    },
+    "reposition": {
+        # Xe tu lai khong nguoi (dieu xe toi don driver) - khong mo phong
+        # hanh vi lai nguy hiem, event_probability=0 de khong bao gio sinh
+        # hard_brake/rapid_accel/sharp_turn/overspeed gia.
+        "speed_range": (30, 55),
+        "event_probability": 0,
+        "max_overspeed_ratio": 1.0,
     },
 }

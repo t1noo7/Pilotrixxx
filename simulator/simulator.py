@@ -26,6 +26,9 @@ from config import (
     TELEMETRY_INTERVAL_SECONDS,
     TRIP_DURATION_MIN_SECONDS,
     TRIP_DURATION_MAX_SECONDS,
+    REPOSITION_ETA_MIN_FACTOR,
+    REPOSITION_ETA_MAX_FACTOR,
+    REPOSITION_MIN_DURATION_SECONDS,
 )
 from route_generator import RouteState
 from scenario import generate_telemetry_point, pick_speed_limit
@@ -156,13 +159,11 @@ def run_simulation(
         speed_limit = pick_speed_limit()
         prev_speed = random.uniform(20, 40)
 
-        duration = random.randint(TRIP_DURATION_MIN_SECONDS, TRIP_DURATION_MAX_SECONDS)
-        num_points = duration // TELEMETRY_INTERVAL_SECONDS
-        print(f"[{prefix}] Trip duration: {duration}s (~{num_points} diem)")
-
         # Xe duoc goi di don driver ngay tu dau (khong can doi stop_event
         # giua chung) - dung cho truong hop xe dang dung yen, khong co
-        # thread nao dang "lang thang" de ma ngat giua chung.
+        # thread nao dang "lang thang" de ma ngat giua chung. Goi
+        # head_to_location() TRUOC khi tinh duration de lay duoc ETA thuc
+        # te tu OSRM (thay vi random co dinh khong lien quan quang duong).
         heading_to_target = False
         if immediate_target and target_box is not None:
             print(
@@ -171,11 +172,74 @@ def run_simulation(
             route.head_to_location(target_box["lat"], target_box["lng"])
             heading_to_target = True
 
-        for i in range(num_points):
+        if heading_to_target and route.last_eta_seconds is not None:
+            # Co ETA that tu OSRM - nhan he so an toan ngau nhien 1.5-2x de
+            # tru hao tinh trang thuc te (den do, tac duong...) OSRM khong
+            # tinh het, tranh lap lai bug "het gio nhung con cach vai km".
+            safety_factor = random.uniform(
+                REPOSITION_ETA_MIN_FACTOR, REPOSITION_ETA_MAX_FACTOR
+            )
+            duration = max(
+                int(route.last_eta_seconds * safety_factor),
+                REPOSITION_MIN_DURATION_SECONDS,
+            )
+            print(
+                f"[{prefix}] ETA that tu OSRM: {route.last_eta_seconds:.0f}s, "
+                f"he so an toan x{safety_factor:.2f} -> duration={duration}s."
+            )
+        else:
+            # Trip patrol binh thuong (safe/moderate/dangerous) - giu random
+            # de da dang du lieu ML. Cung la fallback neu OSRM loi luc
+            # head_to_location() (last_eta_seconds = None).
+            duration = random.randint(
+                TRIP_DURATION_MIN_SECONDS, TRIP_DURATION_MAX_SECONDS
+            )
+            if heading_to_target:
+                print(
+                    f"[{prefix}] Khong lay duoc ETA tu OSRM, fallback ve duration random."
+                )
+
+        num_points = duration // TELEMETRY_INTERVAL_SECONDS
+        print(f"[{prefix}] Trip duration: {duration}s (~{num_points} diem)")
+
+        i = 0
+        while i < num_points:
             if stop_event is not None and stop_event.is_set() and not heading_to_target:
                 print(f"[{prefix}] Co driver dat xe - bat dau di don driver.")
                 route.head_to_location(target_box["lat"], target_box["lng"])
                 heading_to_target = True
+
+                # BUG CU: num_points van giu nguyen tu dau (random 5-15p
+                # cua scenario patrol goc, khong lien quan quang duong toi
+                # driver) - xe hay bi "het gio" du van con du suc toi noi
+                # neu duoc cong them thoi gian. Gio tinh lai budget con lai
+                # dua tren ETA THAT tu OSRM (giong nhanh immediate_target),
+                # mo rong num_points thay vi giu nguyen phan con thua cua
+                # vong lap patrol cu.
+                if route.last_eta_seconds is not None:
+                    safety_factor = random.uniform(
+                        REPOSITION_ETA_MIN_FACTOR, REPOSITION_ETA_MAX_FACTOR
+                    )
+                    needed_seconds = max(
+                        route.last_eta_seconds * safety_factor,
+                        REPOSITION_MIN_DURATION_SECONDS,
+                    )
+                    needed_points = -(-int(needed_seconds) // TELEMETRY_INTERVAL_SECONDS)  # lam tron len
+                    old_num_points = num_points
+                    num_points = i + needed_points
+                    print(
+                        f"[{prefix}] ETA that tu OSRM: {route.last_eta_seconds:.0f}s, "
+                        f"he so an toan x{safety_factor:.2f} -> mo rong budget "
+                        f"tu {old_num_points} len {num_points} diem."
+                    )
+                else:
+                    # OSRM loi luc ngat giua chung - khong biet ETA that,
+                    # giu nguyen phan con lai cua vong lap patrol cu (hanh
+                    # vi fallback nhu truoc day, tranh crash).
+                    print(
+                        f"[{prefix}] Khong lay duoc ETA tu OSRM luc ngat giua chung, "
+                        f"giu nguyen budget con lai."
+                    )
 
             if (
                 heading_to_target
@@ -231,6 +295,7 @@ def run_simulation(
                 f"[{prefix}] [{i+1}/{num_points}] speed={point['speed']} limit={speed_limit}{event_note}"
             )
             time.sleep(TELEMETRY_INTERVAL_SECONDS)
+            i += 1
         else:
             # for-else: chi chay khi vong lap het num_points MA KHONG break
             # -> neu dang "di don driver" thi nghia la het gio ma chua toi noi.

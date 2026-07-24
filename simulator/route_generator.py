@@ -81,8 +81,10 @@ def _destination_point(lat, lng, distance_km, bearing_deg):
 
 def _fetch_osrm_route(start_lat, start_lng, end_lat, end_lng):
     """
-    Goi OSRM, tra ve list [(lat, lng), ...] doc theo duong that,
-    hoac None neu loi (mang, timeout, khong tim duoc duong...).
+    Goi OSRM, tra ve (coords, duration_seconds) trong do coords la list
+    [(lat, lng), ...] doc theo duong that va duration_seconds la thoi gian
+    OSRM du doan de di het tuyen (dung lam ETA thuc te, thay cho random
+    co dinh) - hoac None neu loi (mang, timeout, khong tim duoc duong...).
     """
     url = f"{OSRM_BASE_URL}/{start_lng},{start_lat};{end_lng},{end_lat}"
     params = {"overview": "full", "geometries": "geojson"}
@@ -92,11 +94,11 @@ def _fetch_osrm_route(start_lat, start_lng, end_lat, end_lng):
         data = resp.json()
         if data.get("code") != "Ok" or not data.get("routes"):
             return None
+        route = data["routes"][0]
         # GeoJSON tra ve [lng, lat] - dao lai thanh (lat, lng) cho de dung
-        coords = [
-            (lat, lng) for lng, lat in data["routes"][0]["geometry"]["coordinates"]
-        ]
-        return coords
+        coords = [(lat, lng) for lng, lat in route["geometry"]["coordinates"]]
+        duration_seconds = route.get("duration")  # OSRM tra ve don vi giay
+        return coords, duration_seconds
     except (requests.RequestException, ValueError, KeyError, IndexError):
         return None
 
@@ -114,6 +116,11 @@ class RouteState:
         self._cum_dist_km = []
         self._dist_into_leg_km = 0.0
 
+        # ETA (giay) OSRM tra ve cho lan goi head_to_location() gan nhat -
+        # None neu chua goi lan nao hoac OSRM loi. Dung khi can duration
+        # thuc te (vd trip 'reposition' di don driver), thay cho random.
+        self.last_eta_seconds = None
+
         self._start_new_leg()
 
     def _start_new_leg(self):
@@ -124,12 +131,14 @@ class RouteState:
             self.lat, self.lng, leg_distance, bearing
         )
 
-        coords = _fetch_osrm_route(self.lat, self.lng, dest_lat, dest_lng)
+        result = _fetch_osrm_route(self.lat, self.lng, dest_lat, dest_lng)
 
-        if coords is None or len(coords) < 2:
+        if result is None or len(result[0]) < 2:
             # OSRM loi -> fallback: dung diem dich lam 1 "duong thang" tam,
             # de xe van di tiep duoc thay vi dung hinh/crash.
             coords = [(self.lat, self.lng), (dest_lat, dest_lng)]
+        else:
+            coords, _duration = result  # chang patrol khong can luu ETA
 
         # OSRM co the tra ve diem dau hoi lech so voi vi tri hien tai
         # (do snap-to-road) - chen lai diem hien tai cho lien mach, tranh
@@ -203,9 +212,12 @@ class RouteState:
         """Ep chang tiep theo di thang ve 1 diem bat ky (thay vi chon huong
         ngau nhien) - dung khi xe can di don driver tai vi tri ho chon,
         thay cho khai niem 'depot' co dinh truoc day."""
-        coords = _fetch_osrm_route(self.lat, self.lng, target_lat, target_lng)
-        if coords is None or len(coords) < 2:
+        result = _fetch_osrm_route(self.lat, self.lng, target_lat, target_lng)
+        if result is None or len(result[0]) < 2:
             coords = [(self.lat, self.lng), (target_lat, target_lng)]
+            self.last_eta_seconds = None
+        else:
+            coords, self.last_eta_seconds = result
         coords[0] = (self.lat, self.lng)
 
         cum_dist = [0.0]
