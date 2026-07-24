@@ -17,6 +17,7 @@ import threading
 import time
 
 import psycopg2
+from psycopg2 import pool as pg_pool
 import socketio
 
 from config import BACKEND_URL, DATABASE_URL, FLEET_CONTROL_SECRET
@@ -29,11 +30,51 @@ lock = threading.Lock()
 
 sio = socketio.Client(request_timeout=30)
 
+# Pool connection nho, dung chung cho ca chuong trinh - thay vi
+# psycopg2.connect() moi lan goi get_fleet_mapping()/get_vehicle_position()
+# (moi truoc day mo-dong lien tuc, cong don voi connection backend Render +
+# cac nguon khac de cham nguong Connection pool size cua Supavisor).
+# Dung ThreadedConnectionPool (khong phai 1 connection don) vi
+# get_vehicle_position() duoc goi tu ben trong relocate_then_release(),
+# ham nay chay tren thread rieng cho MOI lan co xe duoc yeu cau - neu 2 xe
+# duoc yeu cau gan nhu cung luc, 2 thread se can 2 connection khac nhau
+# (1 connection tho dung chung giua nhieu thread khong an toan khi query
+# dong thoi ma khong co lock).
+_db_pool: "pg_pool.ThreadedConnectionPool | None" = None
+
+
+def init_db_pool():
+    global _db_pool
+    _db_pool = pg_pool.ThreadedConnectionPool(2, 8, DATABASE_URL)
+    print("[fleet] Da khoi tao DB connection pool (2-8 connections, dung chung).")
+
+
+def close_db_pool():
+    global _db_pool
+    if _db_pool is not None:
+        _db_pool.closeall()
+        _db_pool = None
+        print("[fleet] Da dong DB connection pool.")
+
+
+def _get_pool() -> pg_pool.ThreadedConnectionPool:
+    """Getter co check ro rang thay vi dung thang bien _db_pool - vua de
+    type checker (Pylance) khong con canh bao "co the la None", vua bao
+    loi de hieu ngay neu lo goi get_fleet_mapping()/get_vehicle_position()
+    truoc khi init_db_pool() chay (thay vi AttributeError kho doan)."""
+    if _db_pool is None:
+        raise RuntimeError(
+            "DB pool chua duoc khoi tao - phai goi init_db_pool() truoc "
+            "(binh thuong da goi dau main(), kiem tra lai neu thay loi nay)."
+        )
+    return _db_pool
+
 
 def get_fleet_mapping() -> list[dict]:
     """Tu dong lay danh sach xe + gan scenario xoay vong - khong hardcode,
     them xe moi vao DB la tu dong duoc gia lap, khong can sua code."""
-    conn = psycopg2.connect(DATABASE_URL)
+    pool = _get_pool()
+    conn = pool.getconn()
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -41,7 +82,7 @@ def get_fleet_mapping() -> list[dict]:
             )
             rows = cur.fetchall()
     finally:
-        conn.close()
+        pool.putconn(conn)
     return [
         {"vehicle_id": vid, "device": device, "scenario": SCENARIOS[i % len(SCENARIOS)]}
         for i, (vid, device) in enumerate(rows)
@@ -59,7 +100,8 @@ def get_vehicle_position(vehicle_id: int) -> tuple[float | None, float | None]:
     """Query vi tri thuc te hien tai cua xe tu DB - dung khi xe dang dung
     yen (khong co thread) va can biet no o dau de bat dau reposition
     dung cho, thay vi mac dinh nham ve toa do depot."""
-    conn = psycopg2.connect(DATABASE_URL)
+    pool = _get_pool()
+    conn = pool.getconn()
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -68,7 +110,7 @@ def get_vehicle_position(vehicle_id: int) -> tuple[float | None, float | None]:
             )
             row = cur.fetchone()
     finally:
-        conn.close()
+        pool.putconn(conn)
     return row if row else (None, None)
 
 
@@ -225,6 +267,7 @@ def connect_error(data):
 
 
 def main():
+    init_db_pool()
     fleet = get_fleet_mapping()
 
     socket_url = BACKEND_URL.replace("http://", "ws://").replace("https://", "wss://")
@@ -248,6 +291,7 @@ def main():
     except KeyboardInterrupt:
         print("\n[fleet] Da dung fleet (Ctrl+C).")
         sio.disconnect()
+        close_db_pool()
 
 
 if __name__ == "__main__":
