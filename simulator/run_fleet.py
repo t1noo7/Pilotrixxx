@@ -21,7 +21,7 @@ from psycopg2 import pool as pg_pool
 import socketio
 
 from config import BACKEND_URL, DATABASE_URL, FLEET_CONTROL_SECRET
-from simulator import run_simulation, start_trip, end_trip
+from simulator import run_simulation, start_trip, end_trip, abort_trip
 
 SCENARIOS = ["safe", "moderate", "dangerous"]
 
@@ -68,6 +68,40 @@ def _get_pool() -> pg_pool.ThreadedConnectionPool:
             "(binh thuong da goi dau main(), kiem tra lai neu thay loi nay)."
         )
     return _db_pool
+
+
+def cleanup_orphaned_trips():
+    """Luc run_fleet.py vua khoi dong (hoac restart sau khi bi Ctrl+C/crash
+    giua chung) - BAT KY trip nao dang 'ongoing' voi scenario KHAC 'manual'
+    chac chan la rac tu lan chay truoc, vi CHI co run_fleet.py tao trip
+    scenario=safe/moderate/dangerous/reposition (xem tripsRouter.post(
+    '/start') ben backend) - khong co nguon nao khac. An toan tuyet doi de
+    tu dong abort het, KHONG dung toi trip 'manual' cua driver that.
+
+    Neu khong dọn, POST /trips/start cho xe do se bi 409 Conflict (server
+    thay van con 1 trip 'ongoing' cu) - start_trip() raise ngay (loi 4xx
+    khong retry), lam CHET HAN thread simulation ngay tu dau, xe khong
+    con bao gio patrol lai duoc nua tu lan restart do tro di."""
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select trip_id from trips where status = 'ongoing' and scenario != 'manual'"
+            )
+            orphaned_ids = [row[0] for row in cur.fetchall()]
+    finally:
+        pool.putconn(conn)
+
+    if not orphaned_ids:
+        return
+
+    print(
+        f"[fleet] Phat hien {len(orphaned_ids)} trip 'ongoing' mo coi tu lan "
+        f"chay truoc (scenario != 'manual') - tu dong abort truoc khi patrol lai."
+    )
+    for trip_id in orphaned_ids:
+        abort_trip(trip_id)  # tu co try/except rieng, khong bao gio raise
 
 
 def get_fleet_mapping() -> list[dict]:
@@ -268,6 +302,7 @@ def connect_error(data):
 
 def main():
     init_db_pool()
+    cleanup_orphaned_trips()
     fleet = get_fleet_mapping()
 
     socket_url = BACKEND_URL.replace("http://", "ws://").replace("https://", "wss://")
