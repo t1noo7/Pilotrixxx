@@ -7,6 +7,15 @@ import { fleetControlNamespace, driverNamespace } from '../server.js';
 
 export const driverTripsRouter = express.Router();
 
+// Neu trip 'pending' qua thoi gian nay ma van chua co vehicle_ready_at
+// (khong ai bao xe toi/that bai ca) - coi nhu "mo coi": rat co the do
+// run_fleet.py bi kill/crash giua chung, khong con ai dieu xe hay bao
+// tin hieu gi nua. KHONG dung chung voi ETA (ETA la thoi gian xe DANG DI
+// CHUYEN toi driver, con cai nay la nguong xe DUNG YEN khong nhuc nhich
+// tu dau toi gio) - 10 phut la muc hop ly thuc te (tac duong lau thi
+// driver thuong chu dong doi xe khac, khong doi qua 10 phut).
+const PENDING_TRIP_TIMEOUT_MINUTES = 10;
+
 /**
  * GET /api/driver/vehicles
  * Trả TOÀN BỘ xe kèm status tính toán ('available'/'incoming'/'renting')
@@ -48,12 +57,37 @@ driverTripsRouter.get('/trips/current', async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT t.trip_id, t.vehicle_id, t.started_at, t.scenario, t.status,
+                    t.vehicle_ready_at, t.created_at,
                     v.license_plate, v.model, v.vehicle_type
              FROM trips t JOIN vehicles v ON v.vehicle_id = t.vehicle_id
              WHERE t.driver_id = $1 AND t.status IN ('ongoing', 'pending')`,
             [req.driver.driverId]
         );
-        res.json(result.rows[0] || null);
+        const trip = result.rows[0];
+
+        // Trip 'pending' mo coi - qua PENDING_TRIP_TIMEOUT_MINUTES ma van
+        // chua co vehicle_ready_at, kha nang run_fleet.py da chet/bi kill
+        // giua chung (khong con ai dieu xe/bao tin hieu gi nua). Tu abort
+        // luon o day - GET /trips/current la noi app CHAC CHAN se goi lai
+        // moi lan mo/mount lai man hinh waiting, khong can them cron rieng.
+        if (trip && trip.status === 'pending' && !trip.vehicle_ready_at) {
+            const ageMinutes = (Date.now() - new Date(trip.created_at).getTime()) / 60000;
+            if (ageMinutes > PENDING_TRIP_TIMEOUT_MINUTES) {
+                await pool.query(
+                    `UPDATE trips SET status = 'aborted', ended_at = now()
+                     WHERE trip_id = $1 AND status = 'pending'`,
+                    [trip.trip_id]
+                );
+                console.log(
+                    `[GET /driver/trips/current] Trip #${trip.trip_id} pending qua ` +
+                    `${PENDING_TRIP_TIMEOUT_MINUTES} phut khong co vehicle_ready_at - ` +
+                    `tu abort (nghi ngo run_fleet.py da chet).`
+                );
+                return res.json(null);
+            }
+        }
+
+        res.json(trip || null);
     } catch (err) {
         console.error('[GET /driver/trips/current] Error:', err.message);
         res.status(500).json({ error: 'Internal server error' });
