@@ -12,12 +12,26 @@ const HANOI_CENTER = [21.0285, 105.8542];
 const GLOW_BY_STATE = {
   offline: "#5b6478", // var(--text-muted)
   online_unknown: "#3dd6c4", // var(--accent) - đang chạy, chưa có risk gần nhất
+  stale: "#f59e0b", // vàng cam - DB vẫn báo đang chạy nhưng lâu rồi không có telemetry mới (nghi run_fleet.py chết/bị kill)
   safe: "#34d399",
   medium: "#fbbf24",
   dangerous: "#f87171",
 };
 
-function riskGlowColor(vehicle) {
+// Qua ngưỡng này (ms) mà không có telemetry mới trong khi DB vẫn báo trip
+// đang 'ongoing' -> coi là mất tín hiệu (nghi run_fleet.py chết/bị kill
+// giữa chừng, hoặc mobile app driver bị đóng lâu không gửi HTTP nữa).
+// TELEMETRY_INTERVAL_SECONDS bên simulator là 5s -> 45s ~ bỏ lỡ 9 lần gửi
+// liên tiếp mới báo, đủ dư để không báo nhầm do độ trễ mạng thoáng qua.
+const STALE_THRESHOLD_MS = 45_000;
+
+function isVehicleStale(vehicle, now) {
+  if (vehicle.status !== "online" || !vehicle.last_telemetry_at) return false;
+  return now - new Date(vehicle.last_telemetry_at).getTime() > STALE_THRESHOLD_MS;
+}
+
+function riskGlowColor(vehicle, stale) {
+  if (stale) return GLOW_BY_STATE.stale;
   if (vehicle.status !== "online") return GLOW_BY_STATE.offline;
   if (vehicle.last_risk_level)
     return (
@@ -368,6 +382,16 @@ export default function FleetMap() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
+  // Tu tick moi 5s de ep re-render tinh lai staleness - last_telemetry_at
+  // khong tu doi nhung thoi gian troi qua thi 1 xe co the tu "binh thuong"
+  // chuyen thanh "mat tin hieu" ngay ca khi khong co event Socket.IO nao
+  // moi toi (vd run_fleet.py bi kill dot ngot, khong con gi de emit nua).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   // 1. Load trạng thái ban đầu qua REST
   useEffect(() => {
     apiClient
@@ -412,6 +436,14 @@ export default function FleetMap() {
 
   const vehicleList = useMemo(() => Object.values(vehicles), [vehicles]);
 
+  const staleVehicleIds = useMemo(
+    () =>
+      new Set(
+        vehicleList.filter((v) => isVehicleStale(v, now)).map((v) => v.vehicle_id),
+      ),
+    [vehicleList, now],
+  );
+
   const validPositions = useMemo(
     () =>
       vehicleList
@@ -430,6 +462,11 @@ export default function FleetMap() {
           <span className="live-dot" style={{ marginRight: 6 }} />
           {vehicleList.filter((v) => v.status === "online").length} /{" "}
           {vehicleList.length} xe đang chạy
+          {staleVehicleIds.size > 0 && (
+            <span style={{ color: GLOW_BY_STATE.stale, fontWeight: 600, marginLeft: 8 }}>
+              ⚠ {staleVehicleIds.size} xe mất tín hiệu
+            </span>
+          )}
         </p>
       </header>
 
@@ -470,7 +507,8 @@ export default function FleetMap() {
             {vehicleList.map((v) => {
               if (v.last_latitude == null || v.last_longitude == null)
                 return null;
-              const glowColor = riskGlowColor(v);
+              const stale = isVehicleStale(v, now);
+              const glowColor = riskGlowColor(v, stale);
               const vehicleType = vehicleTypeFor(v.vehicle_id);
               return (
                 <Marker
@@ -479,7 +517,7 @@ export default function FleetMap() {
                   icon={buildIcon(
                     vehicleType,
                     glowColor,
-                    v.status === "online",
+                    v.status === "online" && !stale,
                     v.heading || 0,
                   )}
                 >
@@ -489,7 +527,20 @@ export default function FleetMap() {
                     >
                       <strong>{v.license_plate}</strong> — {v.model}
                       <br />
-                      {v.status === "online" ? (
+                      {stale ? (
+                        <span style={{ color: GLOW_BY_STATE.stale, fontWeight: 600 }}>
+                          ⚠ Mất tín hiệu
+                          {v.last_telemetry_at && (
+                            <>
+                              <br />
+                              <span style={{ fontWeight: 400 }}>
+                                Cập nhật lần cuối:{" "}
+                                {new Date(v.last_telemetry_at).toLocaleTimeString("vi-VN")}
+                              </span>
+                            </>
+                          )}
+                        </span>
+                      ) : v.status === "online" ? (
                         <>
                           Tài xế: {v.driver_name || "—"}
                           <br />
