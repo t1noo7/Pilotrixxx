@@ -40,12 +40,14 @@ export function TripProvider({ children }: { children: ReactNode }) {
       setOngoingTrip(current);
       return current;
     } catch (err) {
-      // Không có mạng / lỗi tạm thời - giữ nguyên state cũ, không xoá vội
-      // (tránh tab nhảy về "Chọn xe" oan trong lúc mất mạng thoáng qua)
+      // Không có mạng / lỗi tạm thời - KHÔNG đổi state, giữ nguyên giá trị
+      // hiện có (tránh tab nhảy về "Chọn xe" oan trong lúc mất mạng thoáng
+      // qua). Trả về null thay vì đọc lại state cũ để không cần đưa
+      // ongoingTrip vào dependency (tránh vòng lặp vô hạn set state).
       console.log("[TripContext] refreshOngoingTrip error:", err);
-      return ongoingTrip;
+      return null;
     }
-  }, [ongoingTrip]);
+  }, []);
 
   const clearOngoingTrip = useCallback(() => setOngoingTrip(null), []);
 
