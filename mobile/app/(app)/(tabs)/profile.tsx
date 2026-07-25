@@ -1,7 +1,7 @@
 // app/(app)/profile.tsx
 import { View, Text, TouchableOpacity, StyleSheet, Alert } from "react-native";
 import { router } from "expo-router";
-import { useAuth } from "../../src/context/AuthContext";
+import { useAuth } from "../../../src/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 
 export default function ProfileScreen() {

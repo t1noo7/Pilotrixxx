@@ -1,72 +1,6 @@
-import { Redirect, Tabs } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import { Redirect, Stack } from "expo-router";
 import { useAuth } from "../../src/context/AuthContext";
-import { TripProvider, useTrip } from "../../src/context/TripContext";
-
-function AppTabs() {
-  const { ongoingTrip } = useTrip();
-  const hasOngoing = !!ongoingTrip;
-
-  return (
-    <Tabs
-      screenOptions={{
-        headerShown: true,
-        tabBarActiveTintColor: "#2563eb",
-        tabBarInactiveTintColor: "#9ca3af",
-      }}
-    >
-      <Tabs.Screen
-        name="vehicles"
-        options={{
-          title: hasOngoing ? "Đang chạy" : "Chọn xe",
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={
-                hasOngoing
-                  ? focused
-                    ? "navigate"
-                    : "navigate-outline"
-                  : focused
-                    ? "car-sport"
-                    : "car-sport-outline"
-              }
-              size={size}
-              color={color}
-            />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="history"
-        options={{
-          title: "Lịch sử",
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "time" : "time-outline"}
-              size={size}
-              color={color}
-            />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: "Cá nhân",
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "person-circle" : "person-circle-outline"}
-              size={size}
-              color={color}
-            />
-          ),
-        }}
-      />
-      <Tabs.Screen name="trip/[id]" options={{ href: null }} />
-      {/* href: null - ẩn khỏi tab bar, chỉ vào bằng router.push từ vehicles.tsx */}
-    </Tabs>
-  );
-}
+import { TripProvider } from "../../src/context/TripContext";
 
 export default function AppLayout() {
   const { driver, isLoading } = useAuth();
@@ -75,7 +9,29 @@ export default function AppLayout() {
 
   return (
     <TripProvider>
-      <AppTabs />
+      <Stack screenOptions={{ headerShown: false }}>
+        {/* (tabs) là route group - không xuất hiện trong URL, chỉ để tổ
+            chức 3 tab chính (vehicles/history/profile) thành 1 navigator
+            riêng, tách khỏi trip/[id] bên dưới. */}
+        <Stack.Screen name="(tabs)" />
+
+        {/* trip/[id] KHÔNG còn là 1 tab (trước đây bị đăng ký nhầm thành
+            tab ẩn qua href:null, gây ra bug: không tab nào thực sự active
+            khi đang xem màn này, và lỡ tay bấm tab khác vẫn vào được do
+            tab bar vẫn hiển thị bên dưới).
+            Giờ đây là 1 màn hình Stack riêng, trình bày dạng full screen
+            modal - đè lên TRÊN toàn bộ khu vực có tab bar, nên khi đang
+            chạy chuyến, tab bar bị che hẳn -> không còn bấm nhầm tab được
+            nữa. gestureEnabled=false để tránh vuốt xuống thoát màn hình
+            giữa chừng chuyến đi. */}
+        <Stack.Screen
+          name="trip/[id]"
+          options={{
+            presentation: "fullScreenModal",
+            gestureEnabled: false,
+          }}
+        />
+      </Stack>
     </TripProvider>
   );
 }
