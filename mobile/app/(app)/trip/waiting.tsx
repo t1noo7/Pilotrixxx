@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
-import { activateTrip } from "../../../src/api/driverTrips";
+import { activateTrip, getCurrentTrip } from "../../../src/api/driverTrips";
 import {
   connectDriverSocket,
   disconnectDriverSocket,
@@ -24,6 +24,56 @@ export default function WaitingScreen() {
 
   const [ready, setReady] = useState(false);
   const [activating, setActivating] = useState(false);
+  const [hydrating, setHydrating] = useState(true);
+
+  // Hydrate trang thai THAT tu API luc mount - truoc day 'ready' chi duoc
+  // set true bang cach bat dung 1 lan socket event 'vehicle:ready' dang
+  // song. Neu app bi kill/mo lai dung luc event do da ban ra roi (hoac
+  // socket chua kip connect), tin hieu mat vinh vien va man hinh ket o
+  // "dang tren duong" mai mai du DB/thuc te da khac tu lau. Gio goi
+  // getCurrentTrip() (nguon su that ben vung) truoc, chi con cho socket
+  // xu ly cap nhat REALTIME trong luc man hinh dang mo.
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const current = await getCurrentTrip();
+        if (!mounted) return;
+        if (!current || String(current.trip_id) !== String(tripId)) {
+          // Trip nay khong con pending/ongoing nua (vd bi 'aborted' luc
+          // app dang dong, hoac driver da huy o may khac) - khong con gi
+          // de cho o day nua, quay ve man chon xe.
+          Alert.alert(
+            "Chuyến không còn hợp lệ",
+            "Chuyến này đã kết thúc hoặc bị huỷ, vui lòng chọn xe khác.",
+            [{ text: "OK", onPress: () => router.replace("/(app)/vehicles") }],
+          );
+          return;
+        }
+        if (current.status === "ongoing") {
+          // Da duoc activate tu truoc (vd tu 1 phien khac) - vao thang
+          // trip/[id], khong con gi phai cho o man hinh nay nua.
+          router.replace({
+            pathname: "/(app)/trip/[id]",
+            params: {
+              id: current.trip_id,
+              vehicleType,
+              startedAt: current.started_at,
+            },
+          });
+          return;
+        }
+        if (current.vehicle_ready_at) setReady(true);
+      } catch (err: any) {
+        console.log("getCurrentTrip hydrate error:", err.message);
+      } finally {
+        if (mounted) setHydrating(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [tripId, vehicleType]);
 
   useEffect(() => {
     let mounted = true;
@@ -80,7 +130,9 @@ export default function WaitingScreen() {
   return (
     <View style={styles.container}>
       <Image source={DUCK_GIF} style={styles.duck} contentFit="contain" />
-      {ready ? (
+      {hydrating ? (
+        <Text style={styles.subtitle}>Đang kiểm tra trạng thái xe...</Text>
+      ) : ready ? (
         <>
           <Text style={styles.title}>Xe đã tới nơi! 🎉</Text>
           <Text style={styles.subtitle}>

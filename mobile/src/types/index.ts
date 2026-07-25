@@ -34,6 +34,7 @@ export interface CurrentTrip {
   started_at: string;
   scenario: string;
   status: string; // 'pending' | 'ongoing' - dùng để phân biệt resume vào waiting.tsx hay trip/[id].tsx
+  vehicle_ready_at: string | null; // null = xe chưa tới; có giá trị = đã tới, sẵn sàng cho driver bấm bắt đầu
 }
 
 export interface RiskScore {
