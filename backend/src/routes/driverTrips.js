@@ -58,7 +58,10 @@ driverTripsRouter.get('/trips/current', async (req, res) => {
         const result = await pool.query(
             `SELECT t.trip_id, t.vehicle_id, t.started_at, t.scenario, t.status,
                     t.vehicle_ready_at, t.created_at,
-                    v.license_plate, v.model, v.vehicle_type
+                    t.demo_mode, t.dest_latitude, t.dest_longitude,
+                    v.license_plate, v.model, v.vehicle_type,
+                    CASE WHEN v.last_telemetry_at > t.started_at THEN v.last_latitude ELSE NULL END AS resume_latitude,
+                    CASE WHEN v.last_telemetry_at > t.started_at THEN v.last_longitude ELSE NULL END AS resume_longitude
              FROM trips t JOIN vehicles v ON v.vehicle_id = t.vehicle_id
              WHERE t.driver_id = $1 AND t.status IN ('ongoing', 'pending')`,
             [req.driver.driverId]
@@ -171,6 +174,44 @@ driverTripsRouter.post('/trips/:id/activate', async (req, res) => {
         res.json(result.rows[0]);
     } catch (err) {
         console.error('[POST /driver/trips/:id/activate] Error:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * PATCH /api/driver/trips/:id/route-mode
+ * Body: { demoMode, destLatitude?, destLongitude? }
+ * Luu lai che do (GPS that/demo) + toa do dich driver chon o
+ * destination.tsx - truoc day chi ton tai duoi dang route params thoang
+ * qua giua destination.tsx -> trip/[id].tsx, mat sach neu app bi kill
+ * giua trip roi mo lai (dung nguyen tac fire-and-forget da biet tu
+ * vehicle_ready_at, lan nay o cho khac).
+ */
+driverTripsRouter.patch('/trips/:id/route-mode', async (req, res) => {
+    const tripId = parseInt(req.params.id, 10);
+    if (Number.isNaN(tripId)) return res.status(400).json({ error: 'tripId không hợp lệ' });
+
+    const { demoMode, destLatitude, destLongitude } = req.body;
+    if (typeof demoMode !== 'boolean') {
+        return res.status(400).json({ error: 'demoMode (boolean) là bắt buộc' });
+    }
+    if (demoMode && (typeof destLatitude !== 'number' || typeof destLongitude !== 'number')) {
+        return res.status(400).json({ error: 'destLatitude/destLongitude là bắt buộc khi demoMode=true' });
+    }
+
+    try {
+        const result = await pool.query(
+            `UPDATE trips SET demo_mode = $1, dest_latitude = $2, dest_longitude = $3
+             WHERE trip_id = $4 AND driver_id = $5 AND status = 'ongoing'
+             RETURNING trip_id, demo_mode, dest_latitude, dest_longitude`,
+            [demoMode, demoMode ? destLatitude : null, demoMode ? destLongitude : null, tripId, req.driver.driverId]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: `Chuyến #${tripId} không tồn tại, không thuộc về bạn, hoặc chưa ở trạng thái đang chạy` });
+        }
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('[PATCH /driver/trips/:id/route-mode] Error:', err.message);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
