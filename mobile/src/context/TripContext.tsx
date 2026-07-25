@@ -10,18 +10,29 @@ import { AppState } from "react-native";
 import { getCurrentTrip } from "../api/driverTrips";
 import type { CurrentTrip } from "../types";
 
+type LastKnownLocation = { latitude: number; longitude: number } | null;
+
 type TripContextValue = {
   ongoingTrip: CurrentTrip | null;
   /** Gọi lại API /trips/current, cập nhật state - dùng sau khi start/end trip
    *  để tab bar phản ánh đúng ngay, không phải chờ AppState đổi. */
   refreshOngoingTrip: () => Promise<CurrentTrip | null>;
   clearOngoingTrip: () => void;
+  /** Toạ độ cuối cùng của xe lúc kết thúc trip (GPS thật hoặc route demo).
+   *  Man "Chon xe" dung gia tri nay lam vi tri driver ngay lap tuc thay vi
+   *  cho goi lai GPS - vi driver dang ngoi trong xe, 2 vi tri la mot. Dung
+   *  1 lan roi tu xoa (setLastKnownLocation(null)) de lan sau quay lai
+   *  fallback ve GPS that binh thuong. */
+  lastKnownLocation: LastKnownLocation;
+  setLastKnownLocation: (loc: LastKnownLocation) => void;
 };
 
 const TripContext = createContext<TripContextValue | undefined>(undefined);
 
 export function TripProvider({ children }: { children: ReactNode }) {
   const [ongoingTrip, setOngoingTrip] = useState<CurrentTrip | null>(null);
+  const [lastKnownLocation, setLastKnownLocation] =
+    useState<LastKnownLocation>(null);
 
   const refreshOngoingTrip = useCallback(async () => {
     try {
@@ -52,7 +63,13 @@ export function TripProvider({ children }: { children: ReactNode }) {
 
   return (
     <TripContext.Provider
-      value={{ ongoingTrip, refreshOngoingTrip, clearOngoingTrip }}
+      value={{
+        ongoingTrip,
+        refreshOngoingTrip,
+        clearOngoingTrip,
+        lastKnownLocation,
+        setLastKnownLocation,
+      }}
     >
       {children}
     </TripContext.Provider>
