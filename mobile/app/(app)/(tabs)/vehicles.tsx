@@ -23,6 +23,7 @@ import LoadingOverlay from "../../../src/components/LoadingOverlay";
 import VehicleIcon from "../../../src/components/VehicleIcon";
 import { useTrip } from "../../../src/context/TripContext";
 import type { Vehicle, VehicleStatus } from "../../../src/types";
+import { buildTripScreenParams } from "../../../src/utils/tripNav";
 
 const STATUS_LABEL: Record<VehicleStatus, string> = {
   available: "Sẵn sàng",
@@ -132,11 +133,7 @@ export default function VehiclesScreen() {
           } else {
             router.replace({
               pathname: "/(app)/trip/[id]",
-              params: {
-                id: current.trip_id,
-                vehicleType: current.vehicle_type,
-                startedAt: current.started_at,
-              },
+              params: buildTripScreenParams(current),
             });
           }
           return;

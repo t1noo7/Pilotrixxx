@@ -83,3 +83,25 @@ export async function sendTelemetry(
 ): Promise<void> {
   await apiClient.post(`/api/driver/trips/${tripId}/telemetry`, data);
 }
+
+export async function setRouteMode(
+  tripId: string,
+  demoMode: boolean,
+  destLatitude?: number,
+  destLongitude?: number,
+): Promise<{
+  trip_id: string;
+  demo_mode: boolean;
+  dest_latitude: number | null;
+  dest_longitude: number | null;
+}> {
+  const { data } = await apiClient.patch(
+    `/api/driver/trips/${tripId}/route-mode`,
+    {
+      demoMode,
+      destLatitude,
+      destLongitude,
+    },
+  );
+  return data;
+}

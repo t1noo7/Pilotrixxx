@@ -35,6 +35,14 @@ export interface CurrentTrip {
   scenario: string;
   status: string; // 'pending' | 'ongoing' - dùng để phân biệt resume vào waiting.tsx hay trip/[id].tsx
   vehicle_ready_at: string | null; // null = xe chưa tới; có giá trị = đã tới, sẵn sàng cho driver bấm bắt đầu
+  demo_mode: boolean;
+  dest_latitude: number | null;
+  dest_longitude: number | null;
+  // Vi tri xe cuoi cung tu telemetry, chi khac null neu telemetry moi hon
+  // started_at cua trip nay - dung de noi tiep route demo dung mach luc
+  // resume sau kill app, thay vi bat dau lai tu GPS that cua dien thoai.
+  resume_latitude: number | null;
+  resume_longitude: number | null;
 }
 
 export interface RiskScore {

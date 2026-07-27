@@ -14,6 +14,7 @@ import MapView, { Marker, MapPressEvent } from "react-native-maps";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import { searchAddresses, GeocodeResult } from "../../../src/api/geocode";
+import { setRouteMode } from "../../../src/api/driverTrips";
 import type { VehicleType } from "../../../src/types";
 
 type PickMode = "address" | "map";
@@ -97,10 +98,18 @@ export default function DestinationScreen() {
     });
   };
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (!tripId) return;
 
     if (!demoMode) {
+      try {
+        await setRouteMode(tripId, false);
+      } catch (err: any) {
+        // Khong chan driver tiep tuc chi vi luu che do that bai - GPS
+        // that van hoat dong binh thuong ngay ca khi backend chua kip
+        // ghi nhan, chi anh huong kha nang resume dung sau khi kill app.
+        console.log("setRouteMode error:", err.response?.data, err.message);
+      }
       router.replace({
         pathname: "/(app)/trip/[id]",
         params: {
@@ -118,6 +127,12 @@ export default function DestinationScreen() {
         "Nhập địa chỉ hoặc cắm mốc trên bản đồ trước nhé",
       );
       return;
+    }
+
+    try {
+      await setRouteMode(tripId, true, selected.latitude, selected.longitude);
+    } catch (err: any) {
+      console.log("setRouteMode error:", err.response?.data, err.message);
     }
 
     router.replace({
@@ -293,8 +308,18 @@ export default function DestinationScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f9fafb", padding: 20, paddingTop: 60 },
-  header: { fontSize: 20, fontWeight: "700", color: "#111827", marginBottom: 16 },
+  container: {
+    flex: 1,
+    backgroundColor: "#f9fafb",
+    padding: 20,
+    paddingTop: 60,
+  },
+  header: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 16,
+  },
   modeRow: { flexDirection: "row", gap: 10, marginBottom: 16 },
   modeBtn: {
     flex: 1,
@@ -347,7 +372,12 @@ const styles = StyleSheet.create({
   coordHint: { marginTop: 10, fontSize: 12, color: "#6b7280" },
   mapBox: { flex: 1, borderRadius: 12, overflow: "hidden" },
   map: { flex: 1, minHeight: 300, borderRadius: 12 },
-  mapHint: { fontSize: 12, color: "#6b7280", marginTop: 8, textAlign: "center" },
+  mapHint: {
+    fontSize: 12,
+    color: "#6b7280",
+    marginTop: 8,
+    textAlign: "center",
+  },
   continueBtn: {
     marginTop: 16,
     flexDirection: "row",

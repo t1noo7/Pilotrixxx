@@ -15,6 +15,7 @@ import {
   clearPendingTripId,
 } from "../../../src/utils/pendingTrip";
 import type { VehicleType } from "../../../src/types";
+import { buildTripScreenParams } from "../../../src/utils/tripNav";
 
 const DUCK_GIF = require("../../../assets/animations/duck-waiting.gif");
 
@@ -56,15 +57,9 @@ export default function WaitingScreen() {
           return;
         }
         if (current.status === "ongoing") {
-          // Da duoc activate tu truoc (vd tu 1 phien khac) - vao thang
-          // trip/[id], khong con gi phai cho o man hinh nay nua.
           router.replace({
             pathname: "/(app)/trip/[id]",
-            params: {
-              id: current.trip_id,
-              vehicleType,
-              startedAt: current.started_at,
-            },
+            params: buildTripScreenParams(current),
           });
           return;
         }
