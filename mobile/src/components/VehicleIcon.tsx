@@ -250,7 +250,13 @@ export default function VehicleIcon({
       style={{
         width: w,
         height: h,
-        transform: rotation ? [{ rotate: `${rotation}deg` }] : undefined,
+        // Luon giu transform la 1 mang co dinh (khong toggle undefined <->
+        // mang) - rotation=0 van la "rotate 0deg" (hinh anh giong het truoc
+        // day), tranh style prop nay xuat hien/bien mat qua lai giua cac
+        // lan render, gay crash "_validateTransforms... forEach of null"
+        // (bug diffing noi bo cua React Native/Fabric khi transform toggle
+        // lien tuc luc xe dang di theo route demo, heading doi moi giay).
+        transform: [{ rotate: `${rotation}deg` }],
       }}
     >
       <SvgXml xml={xml} width="100%" height="100%" />
