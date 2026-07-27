@@ -17,7 +17,8 @@ import {
 import type { VehicleType } from "../../../src/types";
 import { buildTripScreenParams } from "../../../src/utils/tripNav";
 
-const DUCK_GIF = require("../../../assets/animations/duck-waiting.gif");
+const DUCK_WAITING_GIF = require("../../../assets/animations/duck-waiting.gif");
+const DUCK_SATISFIED_GIF = require("../../../assets/animations/duck-satisfied.gif");
 
 export default function WaitingScreen() {
   const { id: tripId, vehicleType: vehicleTypeParam } = useLocalSearchParams<{
@@ -131,7 +132,11 @@ export default function WaitingScreen() {
 
   return (
     <View style={styles.container}>
-      <Image source={DUCK_GIF} style={styles.duck} contentFit="contain" />
+      <Image
+        source={ready ? DUCK_SATISFIED_GIF : DUCK_WAITING_GIF}
+        style={styles.duck}
+        contentFit="contain"
+      />
       {hydrating ? (
         <Text style={styles.subtitle}>Đang kiểm tra trạng thái xe...</Text>
       ) : ready ? (
