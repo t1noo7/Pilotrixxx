@@ -10,6 +10,10 @@ import {
   driverSocket,
 } from "../../../src/api/socket";
 import { useTrip } from "../../../src/context/TripContext";
+import {
+  savePendingTripId,
+  clearPendingTripId,
+} from "../../../src/utils/pendingTrip";
 import type { VehicleType } from "../../../src/types";
 
 const DUCK_GIF = require("../../../assets/animations/duck-waiting.gif");
@@ -43,6 +47,7 @@ export default function WaitingScreen() {
           // Trip nay khong con pending/ongoing nua (vd bi 'aborted' luc
           // app dang dong, hoac driver da huy o may khac) - khong con gi
           // de cho o day nua, quay ve man chon xe.
+          await clearPendingTripId();
           Alert.alert(
             "Chuyến không còn hợp lệ",
             "Chuyến này đã kết thúc hoặc bị huỷ, vui lòng chọn xe khác.",
@@ -63,6 +68,7 @@ export default function WaitingScreen() {
           });
           return;
         }
+        await savePendingTripId(current.trip_id);
         if (current.vehicle_ready_at) setReady(true);
       } catch (err: any) {
         console.log("getCurrentTrip hydrate error:", err.message);
@@ -110,6 +116,7 @@ export default function WaitingScreen() {
     setActivating(true);
     try {
       await activateTrip(tripId);
+      await clearPendingTripId();
       await refreshOngoingTrip();
       // Khong vao thang trip/[id] nua - qua man "chon diem den" truoc,
       // man do se tu quyet dinh dung GPS that hay che do demo roi moi

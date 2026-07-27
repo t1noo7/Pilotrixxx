@@ -15,6 +15,10 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import { getVehicles, reserveTrip } from "../../../src/api/driverTrips";
 import { geocodeAddress } from "../../../src/api/geocode";
+import {
+  getPendingTripId,
+  clearPendingTripId,
+} from "../../../src/utils/pendingTrip";
 import LoadingOverlay from "../../../src/components/LoadingOverlay";
 import VehicleIcon from "../../../src/components/VehicleIcon";
 import { useTrip } from "../../../src/context/TripContext";
@@ -136,6 +140,14 @@ export default function VehiclesScreen() {
             });
           }
           return;
+        }
+        const orphanedTripId = await getPendingTripId();
+        if (orphanedTripId) {
+          await clearPendingTripId();
+          Alert.alert(
+            "Chuyến không còn hợp lệ",
+            "Chuyến trước đó của bạn đã bị huỷ do quá thời gian chờ trong lúc vắng mặt. Vui lòng đặt xe khác.",
+          );
         }
         const list = await getVehicles();
         setVehicles(list);
