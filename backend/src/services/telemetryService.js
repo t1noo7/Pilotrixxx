@@ -1,6 +1,6 @@
 import { pool } from '../db.js';
 import { runRuleEngine } from './ruleEngine.js';
-import { io } from '../server.js';
+import { io, driverNamespace } from '../server.js';
 
 /**
  * Xu ly 1 message telemetry tu MQTT:
@@ -82,8 +82,6 @@ export async function handleTelemetryMessage(topic, payload) {
         const driverId = tripRes.rows[0]?.driver_id;
 
         // 2b. Emit realtime vi tri xe len tat ca client dang connect (Dashboard map)
-        // Emit sau khi UPDATE vehicles thanh cong, truoc khi commit cung duoc vi
-        // day chi la thong bao qua socket, khong anh huong transaction DB.
         io.emit('vehicle:position', {
             vehicleId,
             tripId,
@@ -95,6 +93,23 @@ export async function handleTelemetryMessage(topic, payload) {
             ignitionStatus: engine?.ignitionStatus,
             ts,
         });
+
+        // 2c. Emit rieng cho driver dang cho xe (waiting.tsx) - chi vi tri +
+        // ETA con lai, khong can day du nhu ban tren. Chi emit neu trip nay
+        // co gan driver (driverId khac null - patrol trip khong co driver).
+        if (driverId) {
+            driverNamespace.to(`driver:${driverId}`).emit('vehicle:position', {
+                vehicleId,
+                tripId,
+                latitude: position?.latitude,
+                longitude: position?.longitude,
+                positionValid: position?.valid,
+                speed: position?.speed,
+                heading: position?.heading,
+                etaSeconds: payload.etaSeconds ?? null,
+                ts,
+            });
+        }
 
         // 4. Goi Rule Engine - cung transaction, neu loi se rollback chung
         await runRuleEngine(client, {
