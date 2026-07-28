@@ -209,6 +209,9 @@ export default function WaitingScreen() {
             </Text>
           </>
         )}
+        <View style={styles.dividerBadge}>
+          <Text style={styles.dividerBadgeIcon}>🦆</Text>
+        </View>
       </Animated.View>
 
       <View style={styles.bottomPanel}>
@@ -233,36 +236,70 @@ export default function WaitingScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f9fafb" },
   topPanel: {
-    flex: 1,
+    flex: 1, // 1 phan
     alignItems: "center",
     justifyContent: "center",
-    padding: 24,
-    gap: 12,
+    padding: 16,
+    gap: 6,
+    backgroundColor: "#fffbea",
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+    zIndex: 2,
   },
-  bottomPanel: { flex: 1 },
+  bottomPanel: {
+    flex: 2, // 2 phan - ti le 1/3 - 2/3
+    marginTop: -20, // map "chui" len khoi bo tron cua top panel, dinh lien khong ho trang
+    zIndex: 1,
+    overflow: "hidden",
+  },
+  dividerBadge: {
+    position: "absolute",
+    bottom: -18,
+    alignSelf: "center",
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#fde68a",
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 9, // cao hon topPanel (6) de Android khong bi map de len
+    zIndex: 3,
+  },
+  dividerBadgeIcon: { fontSize: 18 },
   mapPlaceholder: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#e5e7eb",
   },
-  duck: { width: 180, height: 180 },
+  duck: { width: 120, height: 120 },
   title: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "700",
     color: "#111827",
     textAlign: "center",
   },
-  subtitle: { fontSize: 14, color: "#6b7280", textAlign: "center" },
+  subtitle: { fontSize: 13, color: "#6b7280", textAlign: "center" },
   startBtn: {
-    marginTop: 16,
+    marginTop: 10,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     backgroundColor: "#22c55e",
-    paddingVertical: 14,
-    paddingHorizontal: 28,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
     borderRadius: 30,
   },
-  startBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  startBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
 });
