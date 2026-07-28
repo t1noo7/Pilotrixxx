@@ -165,12 +165,17 @@ def run_simulation(
         # head_to_location() TRUOC khi tinh duration de lay duoc ETA thuc
         # te tu OSRM (thay vi random co dinh khong lien quan quang duong).
         heading_to_target = False
+        target_start_time = None
+        initial_eta_seconds = None
+
         if immediate_target and target_box is not None:
             print(
                 f"[{prefix}] Duoc goi di don driver tai ({target_box['lat']}, {target_box['lng']})."
             )
             route.head_to_location(target_box["lat"], target_box["lng"])
             heading_to_target = True
+            target_start_time = time.time()
+            initial_eta_seconds = route.last_eta_seconds
 
         if heading_to_target and route.last_eta_seconds is not None:
             # Co ETA that tu OSRM - nhan he so an toan ngau nhien 1.5-2x de
@@ -208,6 +213,8 @@ def run_simulation(
                 print(f"[{prefix}] Co driver dat xe - bat dau di don driver.")
                 route.head_to_location(target_box["lat"], target_box["lng"])
                 heading_to_target = True
+                target_start_time = time.time()
+                initial_eta_seconds = route.last_eta_seconds
 
                 # BUG CU: num_points van giu nguyen tu dau (random 5-15p
                 # cua scenario patrol goc, khong lien quan quang duong toi
@@ -224,7 +231,9 @@ def run_simulation(
                         route.last_eta_seconds * safety_factor,
                         REPOSITION_MIN_DURATION_SECONDS,
                     )
-                    needed_points = -(-int(needed_seconds) // TELEMETRY_INTERVAL_SECONDS)  # lam tron len
+                    needed_points = -(
+                        -int(needed_seconds) // TELEMETRY_INTERVAL_SECONDS
+                    )  # lam tron len
                     old_num_points = num_points
                     num_points = i + needed_points
                     print(
@@ -258,6 +267,15 @@ def run_simulation(
 
             lat, lng, heading = route.step(point["speed"])
 
+            eta_seconds_remaining = None
+            if (
+                heading_to_target
+                and initial_eta_seconds is not None
+                and target_start_time is not None
+            ):
+                elapsed = time.time() - target_start_time
+                eta_seconds_remaining = max(int(initial_eta_seconds - elapsed), 0)
+
             payload = {
                 "vehicleId": vehicle_id,
                 "tripId": trip_id,
@@ -287,6 +305,7 @@ def run_simulation(
                     "batteryLevel": point["battery_level"],
                     "gsmSignal": point["gsm_signal"],
                 },
+                "etaSeconds": eta_seconds_remaining,
             }
 
             mqtt_client.publish(topic, json.dumps(payload), qos=1)
