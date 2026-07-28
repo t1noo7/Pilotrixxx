@@ -94,13 +94,26 @@ export async function handleTelemetryMessage(topic, payload) {
             ts,
         });
 
-        // 2c. Emit rieng cho driver dang cho xe (waiting.tsx) - chi vi tri +
-        // ETA con lai, khong can day du nhu ban tren. Chi emit neu trip nay
-        // co gan driver (driverId khac null - patrol trip khong co driver).
-        if (driverId) {
-            driverNamespace.to(`driver:${driverId}`).emit('vehicle:position', {
+        // 2c. Emit rieng cho driver dang cho xe (waiting.tsx). QUAN TRONG:
+        // KHONG dung driverId/tripId cua payload (patrol trip dang publish
+        // telemetry) - phai tra CHINH XAC theo vehicle_id, tim trip 'manual'
+        // dang 'pending' cua no (neu co). Ly do: luc xe dang duoc dieu huong
+        // di don driver, no VAN dang publish telemetry duoi trip_id patrol
+        // goc (simulator khong doi trip_id giua chung), khac hoan toan voi
+        // trip_id 'manual' ma mobile app dang theo doi. Neu dung nham
+        // payload.tripId, driver_id tra ve luon NULL (patrol trip khong co
+        // driver) - day chinh la nguyen nhan xe "dung yen" tren map.
+        const pendingRes = await client.query(
+            `SELECT trip_id, driver_id FROM trips
+             WHERE vehicle_id = $1 AND scenario = 'manual' AND status = 'pending'
+             LIMIT 1`,
+            [vehicleId]
+        );
+        const pendingTrip = pendingRes.rows[0];
+        if (pendingTrip) {
+            driverNamespace.to(`driver:${pendingTrip.driver_id}`).emit('vehicle:position', {
                 vehicleId,
-                tripId,
+                tripId: pendingTrip.trip_id, // gui dung tripId 'manual' de client filter khop
                 latitude: position?.latitude,
                 longitude: position?.longitude,
                 positionValid: position?.valid,
