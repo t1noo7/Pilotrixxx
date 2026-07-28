@@ -236,9 +236,10 @@ def run_simulation(
                     )  # lam tron len
                     old_num_points = num_points
                     num_points = i + needed_points
+                    direction = "mo rong" if num_points > old_num_points else "rut ngan"
                     print(
                         f"[{prefix}] ETA that tu OSRM: {route.last_eta_seconds:.0f}s, "
-                        f"he so an toan x{safety_factor:.2f} -> mo rong budget "
+                        f"he so an toan x{safety_factor:.2f} -> {direction} budget "
                         f"tu {old_num_points} len {num_points} diem."
                     )
                 else:
