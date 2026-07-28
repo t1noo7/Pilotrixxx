@@ -43,6 +43,8 @@ export interface CurrentTrip {
   // resume sau kill app, thay vi bat dau lai tu GPS that cua dien thoai.
   resume_latitude: number | null;
   resume_longitude: number | null;
+  vehicle_latitude: number | null;
+  vehicle_longitude: number | null;
 }
 
 export interface RiskScore {
