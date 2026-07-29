@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Alert,
   Animated,
+  Easing,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { Image } from "expo-image";
@@ -25,9 +26,24 @@ import type { VehicleType } from "../../../src/types";
 import { buildTripScreenParams } from "../../../src/utils/tripNav";
 import PendingVehicleMap from "../../../src/components/PendingVehicleMap";
 import { useVehicleLiveTracking } from "../../../src/hooks/useVehicleLiveTracking";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Path } from "react-native-svg";
 
 const DUCK_WAITING_GIF = require("../../../assets/animations/duck-waiting.gif");
 const DUCK_SATISFIED_GIF = require("../../../assets/animations/duck-satisfied.gif");
+
+const SPINNER_FRAMES = ["𒅒", "𒈔", "𒅒", "𒇫", "𒄆"];
+
+function useCyclingFrame(frames: string[], intervalMs: number) {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIndex((i) => (i + 1) % frames.length);
+    }, intervalMs);
+    return () => clearInterval(timer);
+  }, [frames, intervalMs]);
+  return frames[index];
+}
 
 function formatEta(etaSeconds: number | null): string | null {
   if (etaSeconds == null) return null;
@@ -35,12 +51,45 @@ function formatEta(etaSeconds: number | null): string | null {
   return `~${minutes} phút nữa`;
 }
 
+const BURST_POINT_RATIOS = [
+  1.0, 0.5, 0.85, 0.45, 1.05, 0.55, 0.78, 0.42, 0.95, 0.5, 1.0, 0.48, 0.88,
+  0.52, 1.02, 0.46, 0.8, 0.5, 0.92, 0.44,
+];
+const BURST_VIEWBOX = { width: 300, height: 110 };
+
+function buildBurstPath(
+  radiusX: number,
+  radiusY: number,
+  ratios: number[],
+  cx: number,
+  cy: number,
+): string {
+  const n = ratios.length;
+  const points = ratios.map((ratio, i) => {
+    const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+    const x = cx + Math.cos(angle) * radiusX * ratio;
+    const y = cy + Math.sin(angle) * radiusY * ratio;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  return `M ${points[0]} L ${points.slice(1).join(" L ")} Z`;
+}
+
+const BURST_PATH_D = buildBurstPath(
+  140,
+  50,
+  BURST_POINT_RATIOS,
+  BURST_VIEWBOX.width / 2,
+  BURST_VIEWBOX.height / 2,
+);
+const SPIKE_TIP_INDEXES = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18];
+
 export default function WaitingScreen() {
   const { id: tripId, vehicleType: vehicleTypeParam } = useLocalSearchParams<{
     id: string;
     vehicleType?: string;
   }>();
   const vehicleType = (vehicleTypeParam as VehicleType) || "sedan";
+  const insets = useSafeAreaInsets();
   const { refreshOngoingTrip } = useTrip();
 
   const [ready, setReady] = useState(false);
@@ -51,7 +100,6 @@ export default function WaitingScreen() {
     longitude: number | null;
   } | null>(null);
 
-  // Animation "bien mat dep mat" cho panel vit luc bam bat dau chuyen.
   const topPanelOpacity = useRef(new Animated.Value(1)).current;
   const topPanelTranslateY = useRef(new Animated.Value(0)).current;
 
@@ -126,6 +174,122 @@ export default function WaitingScreen() {
 
   const livePosition = useVehicleLiveTracking(tripId, initialVehiclePos);
   const etaLabel = ready ? null : formatEta(livePosition?.etaSeconds ?? null);
+  const spinnerFrame = useCyclingFrame(SPINNER_FRAMES, 180);
+
+  const burstAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!ready) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(burstAnim, {
+          toValue: 1,
+          duration: 550,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(burstAnim, {
+          toValue: 0,
+          duration: 550,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [ready]);
+
+  const [burstPathD, setBurstPathD] = useState(BURST_PATH_D);
+  const burstRafRef = useRef<number | null>(null);
+  const burstStartRef = useRef(0);
+
+  useEffect(() => {
+    if (!ready) return;
+    burstStartRef.current = Date.now();
+
+    const tick = () => {
+      const elapsed = Date.now() - burstStartRef.current;
+      const ratios = BURST_POINT_RATIOS.map((base, i) => {
+        if (!SPIKE_TIP_INDEXES.includes(i)) return base;
+        const phase = i * 0.7;
+        const wave = Math.sin(elapsed / 260 + phase);
+        return base * (1 + wave * 0.22);
+      });
+      setBurstPathD(
+        buildBurstPath(
+          140,
+          50,
+          ratios,
+          BURST_VIEWBOX.width / 2,
+          BURST_VIEWBOX.height / 2,
+        ),
+      );
+      burstRafRef.current = requestAnimationFrame(tick);
+    };
+    burstRafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (burstRafRef.current != null)
+        cancelAnimationFrame(burstRafRef.current);
+    };
+  }, [ready]);
+
+  const haloAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!ready) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(haloAnim, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(haloAnim, {
+          toValue: 0,
+          duration: 900,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [ready]);
+
+  const haloOuterScale = haloAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.9, 1.25],
+  });
+  const haloOuterOpacity = haloAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.28, 0.08],
+  });
+  const haloInnerScale = haloAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.15],
+  });
+  const haloInnerOpacity = haloAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.4, 0.2],
+  });
+  const haloFarScale = haloAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.85, 1.5],
+  });
+  const haloFarOpacity = haloAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.18, 0],
+  });
+
+  const burstScale = burstAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.94, 1.08],
+  });
+  const burstOpacity = burstAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.75, 1],
+  });
 
   const handleStart = useCallback(async () => {
     if (!tripId) return;
@@ -168,6 +332,7 @@ export default function WaitingScreen() {
       <Animated.View
         style={[
           styles.topPanel,
+          { paddingTop: insets.top + 4 },
           {
             opacity: topPanelOpacity,
             transform: [{ translateY: topPanelTranslateY }],
@@ -184,7 +349,29 @@ export default function WaitingScreen() {
           <Text style={styles.subtitle}>Đang kiểm tra trạng thái xe...</Text>
         ) : ready ? (
           <>
-            <Text style={styles.title}>Xe đã tới nơi! 🎉</Text>
+            <View style={styles.titleWrapper}>
+              <Animated.View
+                style={[
+                  styles.burstWrapper,
+                  { opacity: burstOpacity, transform: [{ scale: burstScale }] },
+                ]}
+              >
+                <Svg
+                  width="100%"
+                  height="100%"
+                  viewBox={`0 0 ${BURST_VIEWBOX.width} ${BURST_VIEWBOX.height}`}
+                >
+                  <Path
+                    d={burstPathD}
+                    fill="#fde68a"
+                    stroke="#fbbf24"
+                    strokeWidth={2}
+                    strokeLinejoin="round"
+                  />
+                </Svg>
+              </Animated.View>
+              <Text style={styles.title}>Xe đã tới nơi! 🎉</Text>
+            </View>
             <Text style={styles.subtitle}>
               Sẵn sàng bắt đầu chuyến đi của bạn
             </Text>
@@ -209,8 +396,34 @@ export default function WaitingScreen() {
             </Text>
           </>
         )}
-        <View style={styles.dividerBadge}>
-          <Text style={styles.dividerBadgeIcon}>🦆</Text>
+        <View style={styles.dividerHaloContainer}>
+          <Animated.View
+            style={[
+              styles.haloRingFar,
+              { opacity: haloFarOpacity, transform: [{ scale: haloFarScale }] },
+            ]}
+          />
+          <Animated.View
+            style={[
+              styles.haloRingOuter,
+              {
+                opacity: haloOuterOpacity,
+                transform: [{ scale: haloOuterScale }],
+              },
+            ]}
+          />
+          <Animated.View
+            style={[
+              styles.haloRingInner,
+              {
+                opacity: haloInnerOpacity,
+                transform: [{ scale: haloInnerScale }],
+              },
+            ]}
+          />
+          <View style={styles.dividerBadge}>
+            <Text style={styles.dividerBadgeIcon}>{spinnerFrame}</Text>
+          </View>
         </View>
       </Animated.View>
 
@@ -221,7 +434,6 @@ export default function WaitingScreen() {
             latitude={livePosition.latitude}
             longitude={livePosition.longitude}
             heading={livePosition.heading}
-            etaSeconds={ready ? null : livePosition.etaSeconds}
           />
         ) : (
           <View style={styles.mapPlaceholder}>
@@ -236,11 +448,12 @@ export default function WaitingScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f9fafb" },
   topPanel: {
-    flex: 1, // 1 phan
+    flex: 0.85,
     alignItems: "center",
     justifyContent: "center",
-    padding: 16,
-    gap: 6,
+    paddingHorizontal: 16,
+    paddingBottom: 34,
+    gap: 4,
     backgroundColor: "#fffbea",
     borderBottomLeftRadius: 28,
     borderBottomRightRadius: 28,
@@ -252,38 +465,72 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   bottomPanel: {
-    flex: 2, // 2 phan - ti le 1/3 - 2/3
-    marginTop: -20, // map "chui" len khoi bo tron cua top panel, dinh lien khong ho trang
+    flex: 2.15,
+    marginTop: -20,
     zIndex: 1,
     overflow: "hidden",
   },
-  dividerBadge: {
+  dividerHaloContainer: {
     position: "absolute",
-    bottom: -18,
+    bottom: -96,
     alignSelf: "center",
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#fff",
+    width: 160,
+    height: 160,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 3,
+  },
+  haloRingFar: {
+    position: "absolute",
+    width: 124,
+    height: 124,
+    borderRadius: 62,
+    backgroundColor: "#fbbf24",
+  },
+  haloRingOuter: {
+    position: "absolute",
+    width: 104,
+    height: 104,
+    borderRadius: 52,
+    backgroundColor: "#fde68a",
+  },
+  haloRingInner: {
+    position: "absolute",
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: "#fbbf24",
+  },
+  dividerBadge: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#111827",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2,
     borderColor: "#fde68a",
-    shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 5,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 9, // cao hon topPanel (6) de Android khong bi map de len
-    zIndex: 3,
+    shadowColor: "#fbbf24",
+    shadowOpacity: 0.7,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 10,
   },
-  dividerBadgeIcon: { fontSize: 18 },
+  dividerBadgeIcon: {
+    fontSize: 22,
+    lineHeight: 44,
+    width: 64,
+    textAlign: "center",
+    includeFontPadding: false,
+    color: "#f59e0b",
+  },
   mapPlaceholder: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#e5e7eb",
   },
-  duck: { width: 120, height: 120 },
+  duck: { width: 100, height: 100 },
   title: {
     fontSize: 16,
     fontWeight: "700",
@@ -302,4 +549,18 @@ const styles = StyleSheet.create({
     borderRadius: 30,
   },
   startBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  titleWrapper: {
+    width: 280,
+    height: 90,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 2,
+  },
+  burstWrapper: {
+    position: "absolute",
+    width: 280,
+    height: 100,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });
