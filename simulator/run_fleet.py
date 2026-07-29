@@ -148,6 +148,26 @@ def get_vehicle_position(vehicle_id: int) -> tuple[float | None, float | None]:
     return row if row else (None, None)
 
 
+def get_vehicles_with_active_manual_trip() -> set[int]:
+    """Vehicle_id nao dang co trip 'manual' o trang thai pending/ongoing tu
+    TRUOC khi run_fleet.py restart - TUYET DOI khong duoc spawn patrol cho
+    xe nay luc khoi dong. Neu khong se tao ra 2 "chuyen" song song cho cung
+    1 xe vat ly: 1 ben la trip manual dang cho driver (dung yen/hoac driver
+    dang tu lai), 1 ben la patrol moi tu sinh chay lung tung - patrol nay
+    de telemetry len lam sai lech vi tri hien thi cho driver (bug da gap:
+    xe "tu di" tren map cho waiting.tsx)."""
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select vehicle_id from trips where status in ('pending','ongoing') and scenario = 'manual'"
+            )
+            return {row[0] for row in cur.fetchall()}
+    finally:
+        pool.putconn(conn)
+
+
 def start_vehicle(car: dict):
     stop_event = threading.Event()
     target_box = {"lat": None, "lng": None}
@@ -305,6 +325,13 @@ def main():
     cleanup_orphaned_trips()
     fleet = get_fleet_mapping()
 
+    busy_vehicle_ids = get_vehicles_with_active_manual_trip()
+    if busy_vehicle_ids:
+        print(
+            f"[fleet] {len(busy_vehicle_ids)} xe dang co trip manual pending/ongoing "
+            f"tu truoc khi restart - KHONG patrol cho cac xe nay: {busy_vehicle_ids}"
+        )
+
     socket_url = BACKEND_URL.replace("http://", "ws://").replace("https://", "wss://")
     register_handlers(fleet)
 
@@ -314,10 +341,14 @@ def main():
         auth={"secret": FLEET_CONTROL_SECRET},
     )
 
-    for i, car in enumerate(fleet):
-        if i > 0:
+    started_count = 0
+    for car in fleet:
+        if car["vehicle_id"] in busy_vehicle_ids:
+            continue
+        if started_count > 0:
             time.sleep(2.5)
         start_vehicle(car)
+        started_count += 1
 
     print("[fleet] Fleet dang chay lien tuc. Nhan Ctrl+C de dung.")
     try:
