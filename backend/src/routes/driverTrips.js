@@ -150,7 +150,9 @@ driverTripsRouter.post('/trips/reserve', async (req, res) => {
             if (err.constraint === 'uq_driver_active_trip') {
                 return res.status(409).json({ error: 'Bạn đang có chuyến khác chưa kết thúc' });
             }
-            return res.status(409).json({ error: 'Xe này vừa có người khác đặt, chọn xe khác nhé' });
+            if (err.constraint === 'uq_vehicle_active_trip') {
+                return res.status(409).json({ error: 'Xe này vừa có người khác đặt, chọn xe khác nhé' });
+            }
         }
         console.error('[POST /driver/trips/reserve] Error:', err.message);
         res.status(500).json({ error: 'Internal server error' });

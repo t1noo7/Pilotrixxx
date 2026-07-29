@@ -95,9 +95,9 @@ tripsRouter.post('/start', async (req, res) => {
             });
         }
 
-        // 2. Validate: xe nay dang co trip 'ongoing' chua?
+        // 2. Validate: xe nay dang co trip 'ongoing/pending' chua?
         const ongoingRes = await client.query(
-            `SELECT trip_id FROM trips WHERE vehicle_id = $1 AND status = 'ongoing'`,
+            `SELECT trip_id FROM trips WHERE vehicle_id = $1 AND status IN ('ongoing', 'pending')`,
             [vehicleId]
         );
         if (ongoingRes.rows.length > 0) {
@@ -120,6 +120,9 @@ tripsRouter.post('/start', async (req, res) => {
 
         res.status(201).json({ tripId, vehicleId, driverId });
     } catch (err) {
+        if (err.code === '23505' && err.constraint === 'uq_vehicle_active_trip') {
+            return res.status(409).json({ error: `Vehicle ${vehicleId} đang có trip khác chưa kết thúc` });
+        }
         console.error('[POST /trips/start] Error:', err.message);
         res.status(500).json({ error: 'Internal server error' });
     } finally {
