@@ -99,6 +99,7 @@ export default function WaitingScreen() {
     latitude: number | null;
     longitude: number | null;
   } | null>(null);
+  const vehicleReadyAtMsRef = useRef<number | null>(null);
 
   const topPanelOpacity = useRef(new Animated.Value(1)).current;
   const topPanelTranslateY = useRef(new Animated.Value(0)).current;
@@ -126,7 +127,12 @@ export default function WaitingScreen() {
           return;
         }
         await savePendingTripId(current.trip_id);
-        if (current.vehicle_ready_at) setReady(true);
+        if (current.vehicle_ready_at) {
+          setReady(true);
+          vehicleReadyAtMsRef.current = new Date(
+            current.vehicle_ready_at,
+          ).getTime();
+        }
         setInitialVehiclePos({
           latitude: current.vehicle_latitude ?? null,
           longitude: current.vehicle_longitude ?? null,
@@ -150,7 +156,10 @@ export default function WaitingScreen() {
     })();
 
     const onReady = (data: { tripId: number }) => {
-      if (String(data.tripId) === String(tripId) && mounted) setReady(true);
+      if (String(data.tripId) === String(tripId) && mounted) {
+        setReady(true);
+        vehicleReadyAtMsRef.current = Date.now();
+      }
     };
     const onFailed = (data: { tripId: number; reason: string }) => {
       if (String(data.tripId) !== String(tripId) || !mounted) return;
@@ -171,6 +180,42 @@ export default function WaitingScreen() {
       disconnectDriverSocket();
     };
   }, [tripId]);
+
+  // Hen 1 LAN DUY NHAT dung luc backend se coi la "qua han" - khong
+  // polling lien tuc, vi client da biet chinh xac vehicle_ready_at.
+  const PICKUP_WAIT_TIMEOUT_MS = 10 * 60_000; // khop PICKUP_WAIT_TIMEOUT_MINUTES ben backend
+  const CHECK_BUFFER_MS = 5_000;
+
+  useEffect(() => {
+    if (!ready || vehicleReadyAtMsRef.current == null) return;
+    let mounted = true;
+
+    const fireAt =
+      vehicleReadyAtMsRef.current + PICKUP_WAIT_TIMEOUT_MS + CHECK_BUFFER_MS;
+    const delay = Math.max(0, fireAt - Date.now());
+
+    const timer = setTimeout(async () => {
+      try {
+        const current = await getCurrentTrip();
+        if (!mounted) return;
+        if (!current || String(current.trip_id) !== String(tripId)) {
+          await clearPendingTripId();
+          Alert.alert(
+            "Đã quá thời gian nhận xe",
+            "Xe đã tới điểm đón nhưng bạn chưa xác nhận trong thời gian quy định. Vui lòng đặt xe khác.",
+            [{ text: "OK", onPress: () => router.replace("/(app)/vehicles") }],
+          );
+        }
+      } catch (err: any) {
+        console.log("pickup-timeout check error:", err.message);
+      }
+    }, delay);
+
+    return () => {
+      mounted = false;
+      clearTimeout(timer);
+    };
+  }, [ready, tripId]);
 
   const livePosition = useVehicleLiveTracking(tripId, initialVehiclePos);
   const etaLabel = ready ? null : formatEta(livePosition?.etaSeconds ?? null);

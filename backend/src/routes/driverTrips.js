@@ -15,6 +15,11 @@ export const driverTripsRouter = express.Router();
 // tu dau toi gio) - 10 phut la muc hop ly thuc te (tac duong lau thi
 // driver thuong chu dong doi xe khac, khong doi qua 10 phut).
 const PENDING_TRIP_TIMEOUT_MINUTES = 10;
+// Khac han nhanh tren: xe DA toi noi (vehicle_ready_at da set) nhung
+// driver CHUA bam "Bat dau chuyen di". Khong lien quan gi toi run_fleet.py
+// song/chet nua (xe da dung yen san roi) - chi la driver cho qua lau.
+// Threshold tinh tu vehicle_ready_at, KHONG phai created_at.
+const PICKUP_WAIT_TIMEOUT_MINUTES = 10;
 
 /**
  * GET /api/driver/vehicles
@@ -87,6 +92,22 @@ driverTripsRouter.get('/trips/current', async (req, res) => {
                     `[GET /driver/trips/current] Trip #${trip.trip_id} pending qua ` +
                     `${PENDING_TRIP_TIMEOUT_MINUTES} phut khong co vehicle_ready_at - ` +
                     `tu abort (nghi ngo run_fleet.py da chet).`
+                );
+                return res.json(null);
+            }
+        }
+
+        if (trip && trip.status === 'pending' && trip.vehicle_ready_at) {
+            const waitMinutes = (Date.now() - new Date(trip.vehicle_ready_at).getTime()) / 60000;
+            if (waitMinutes > PICKUP_WAIT_TIMEOUT_MINUTES) {
+                await pool.query(
+                    `UPDATE trips SET status = 'aborted', ended_at = now()
+             WHERE trip_id = $1 AND status = 'pending'`,
+                    [trip.trip_id]
+                );
+                console.log(
+                    `[GET /driver/trips/current] Trip #${trip.trip_id} - xe da toi ` +
+                    `nhung driver khong nhan qua ${PICKUP_WAIT_TIMEOUT_MINUTES} phut - tu abort.`
                 );
                 return res.json(null);
             }
