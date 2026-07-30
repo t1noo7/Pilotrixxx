@@ -156,7 +156,7 @@ def run_simulation(
         topic = f"vehicles/{vehicle_id}/telemetry"
 
         route = RouteState(lat=start_lat, lng=start_lng)
-        speed_limit = pick_speed_limit()
+        speed_limit = pick_speed_limit(route.lat, route.lng)
         prev_speed = random.uniform(20, 40)
 
         # Xe duoc goi di don driver ngay tu dau (khong can doi stop_event
@@ -264,7 +264,7 @@ def run_simulation(
             prev_speed = point["speed"]
 
             if i > 0 and i % 20 == 0:
-                speed_limit = pick_speed_limit()
+                speed_limit = pick_speed_limit(route.lat, route.lng)
 
             lat, lng, heading = route.step(point["speed"])
 

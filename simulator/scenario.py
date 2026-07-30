@@ -14,7 +14,8 @@ Logic "su kien" (hard_brake, rapid_accel, sharp_turn, overspeed):
 
 import random
 
-from config import SCENARIO_PARAMS, GPS_INVALID_PROBABILITY, SPEED_LIMIT_CHOICES
+from config import SCENARIO_PARAMS, GPS_INVALID_PROBABILITY
+from speed_limit_lookup import get_speed_limit
 
 
 def generate_telemetry_point(scenario: str, speed_limit: float, prev_speed: float):
@@ -106,6 +107,9 @@ def generate_telemetry_point(scenario: str, speed_limit: float, prev_speed: floa
     }
 
 
-def pick_speed_limit():
-    """Chon ngau nhien 1 gioi han toc do cho 'doan duong' hien tai."""
-    return random.choice(SPEED_LIMIT_CHOICES)
+from speed_limit_lookup import get_speed_limit
+
+
+def pick_speed_limit(lat: float, lng: float):
+    """Tra maxspeed thuc te theo vi tri hien tai cua xe (thay vi random)."""
+    return get_speed_limit(lat, lng)
