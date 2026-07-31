@@ -80,8 +80,12 @@ export async function sendTelemetry(
     accelY?: number;
     brakeIntensity?: number;
   },
-): Promise<void> {
-  await apiClient.post(`/api/driver/trips/${tripId}/telemetry`, data);
+): Promise<{ received: boolean; speedLimit: number | null }> {
+  const { data: res } = await apiClient.post(
+    `/api/driver/trips/${tripId}/telemetry`,
+    data,
+  );
+  return res;
 }
 
 export async function setRouteMode(
