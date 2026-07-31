@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   Alert,
   Modal,
+  Animated,
+  Image,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import * as Location from "expo-location";
@@ -26,6 +28,15 @@ import {
 import type { RoutePoint } from "../../../src/api/osrm";
 
 const TELEMETRY_INTERVAL_MS = 8000;
+// Vuot nguong nay (10%) so voi speedLimit tra ve tu backend moi tinh la
+// "vuot toc do" - tranh bao dong lien tuc do sai so GPS/lam tron o muc
+// vua sat nguong.
+const OVERSPEED_TOLERANCE = 1.1;
+// So lan gui telemetry LIEN TIEP vuot nguong moi thuc su bat canh bao
+// (~2 lan x 8s = 16s) - tranh nhay canh bao do 1 lan doc GPS nhieu/loi
+// thoang qua. Tat canh bao thi NGAY LAP TUC khi co 1 lan duoi nguong
+// (khong can debounce chieu tat, uu tien an toan hon la muot mat).
+const OVERSPEED_STREAK_THRESHOLD = 2;
 
 const RISK_COLOR: Record<string, string> = {
   safe: "#22c55e",
@@ -134,6 +145,19 @@ export default function TripScreen() {
     lateral: 0,
   });
 
+  // SOS overspeed (trip manual): speedLimit tra ve tu moi lan sendTelemetry
+  // (backend tra cuu OSM theo toa do hien tai). null = dang cho lan
+  // telemetry dau tien hoac backend khong xac dinh duoc.
+  const [overspeedLimit, setOverspeedLimit] = useState<number | null>(null);
+  const overspeedStreakRef = useRef(0);
+  const overspeedPulse = useRef(new Animated.Value(0.15)).current;
+  // Dev-only: nhan gia toc hien thi/gui len de test canh bao vuot toc do
+  // (che do demo chay deu 1 toc do co dinh, kho tu nhien vuot nguong).
+  // Dung ref de doc duoc gia tri moi nhat trong closure applyPositionUpdate
+  // (deps rong), state chi de cap nhat mau/chu nut.
+  const speedTestMultiplierRef = useRef(1);
+  const [speedTestActive, setSpeedTestActive] = useState(false);
+
   // Ham cap nhat vi tri DUNG CHUNG cho ca 2 nguon: GPS that (watchPositionAsync)
   // va route mo phong (useDemoRouteSimulation). Truoc day logic nay nam
   // thang trong callback cua watchPositionAsync - tach ra de tai dung.
@@ -164,6 +188,12 @@ export default function TripScreen() {
         if (dtSec > 0) {
           effectiveSpeed = dist / dtSec;
         }
+      }
+
+      // Dev-only: nhan toc do de test canh bao overspeed (xem nut "Gia
+      // lap vuot toc do"). Multiplier = 1 (mac dinh) khong doi gi ca.
+      if (effectiveSpeed != null && speedTestMultiplierRef.current !== 1) {
+        effectiveSpeed = effectiveSpeed * speedTestMultiplierRef.current;
       }
 
       lastCoordsRef.current = {
@@ -384,14 +414,37 @@ export default function TripScreen() {
         accelX: Math.round(peak.lateral * 1000) / 1000,
         accelY: Math.round(peak.forwardAccel * 1000) / 1000,
         brakeIntensity: Math.round(brakeIntensity * 1000) / 1000,
-      }).catch((err) => {
-        console.log(
-          "sendTelemetry error:",
-          err.response?.status,
-          err.response?.data,
-          err.message,
-        );
-      });
+      })
+        .then(({ speedLimit }) => {
+          const speedKmh = coords.speed != null ? coords.speed * 3.6 : null;
+          const isOver =
+            speedLimit != null &&
+            speedKmh != null &&
+            speedKmh > speedLimit * OVERSPEED_TOLERANCE;
+
+          // DEBUG TAM - xoa sau khi test xong SOS overspeed
+          console.log(
+            `[overspeed-debug] mult=${speedTestMultiplierRef.current} rawSpeedMps=${coords.speed?.toFixed(2)} speedKmh=${speedKmh?.toFixed(1)} speedLimit=${speedLimit} isOver=${isOver} streak=${overspeedStreakRef.current}`,
+          );
+
+          if (isOver) {
+            overspeedStreakRef.current += 1;
+            if (overspeedStreakRef.current >= OVERSPEED_STREAK_THRESHOLD) {
+              setOverspeedLimit(speedLimit);
+            }
+          } else {
+            overspeedStreakRef.current = 0;
+            setOverspeedLimit(null);
+          }
+        })
+        .catch((err) => {
+          console.log(
+            "sendTelemetry error:",
+            err.response?.status,
+            err.response?.data,
+            err.message,
+          );
+        });
 
       // Reset peak cho cửa sổ 8s tiếp theo
       accelPeakRef.current = { forwardAccel: 0, forwardBrake: 0, lateral: 0 };
@@ -401,6 +454,32 @@ export default function TripScreen() {
       if (telemetryTimerRef.current) clearInterval(telemetryTimerRef.current);
     };
   }, [tripId]);
+
+  // Nhap nhay overlay do trong luc dang vuot toc do - dung ca khi
+  // overspeedLimit doi gia tri (vd 50 -> 40 luc xe di qua khu vuc khac
+  // van dang vuot) vi effect nay chi phu thuoc "co dang bat hay khong".
+  useEffect(() => {
+    if (overspeedLimit == null) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(overspeedPulse, {
+          toValue: 0.4,
+          duration: 450,
+          useNativeDriver: true,
+        }),
+        Animated.timing(overspeedPulse, {
+          toValue: 0.1,
+          duration: 450,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+      overspeedPulse.setValue(0.15);
+    };
+  }, [overspeedLimit != null]);
 
   const formatElapsed = (sec: number) => {
     const m = Math.floor(sec / 60)
@@ -548,6 +627,33 @@ export default function TripScreen() {
         )}
       </View>
 
+      {overspeedLimit != null && (
+        // Nen do mo nhap nhay phu toan man hinh - dieu khien bang
+        // overspeedPulse (Animated.Value), khong lien quan animation
+        // rieng cua GIF ben duoi (GIF tu no da co flicker).
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.overspeedBg, { opacity: overspeedPulse }]}
+        />
+      )}
+      {overspeedLimit != null && (
+        <View
+          pointerEvents="none"
+          style={[styles.overspeedBanner, { top: insets.top + 64 }]}
+        >
+          <Image
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            source={require("../../../assets/animations/ovspeed-alert.gif")}
+            style={styles.overspeedGif}
+            resizeMode="contain"
+          />
+          <Text style={styles.overspeedText}>
+            Đoạn đường bạn đang đi giới hạn tốc độ {overspeedLimit}km/h, hãy chú
+            ý nếu không muốn bị vặt lông
+          </Text>
+        </View>
+      )}
+
       {__DEV__ && (
         <TouchableOpacity
           style={styles.debugBtn}
@@ -564,6 +670,31 @@ export default function TripScreen() {
           }}
         >
           <Text style={styles.endBtnText}>🧪 Giả lập sự kiện</Text>
+        </TouchableOpacity>
+      )}
+
+      {__DEV__ && (
+        <TouchableOpacity
+          style={[
+            styles.debugBtn,
+            styles.debugBtnSpeed,
+            speedTestActive && styles.debugBtnSpeedActive,
+          ]}
+          onPress={() => {
+            const next = speedTestMultiplierRef.current > 1 ? 1 : 3;
+            speedTestMultiplierRef.current = next;
+            setSpeedTestActive(next > 1);
+            Alert.alert(
+              "Debug",
+              next > 1
+                ? "Đã nhân x3 tốc độ hiển thị/gửi lên - đợi vài lần telemetry để canh bao overspeed kích hoạt"
+                : "Đã tắt, tốc độ về bình thường",
+            );
+          }}
+        >
+          <Text style={styles.endBtnText}>
+            {speedTestActive ? "🚨 Đang x3 tốc độ" : "🚨 Giả lập vượt tốc độ"}
+          </Text>
         </TouchableOpacity>
       )}
 
@@ -699,6 +830,38 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 24,
+  },
+  debugBtnSpeed: { bottom: 150, backgroundColor: "#7c3aed" },
+  debugBtnSpeedActive: { backgroundColor: "#dc2626" },
+  overspeedBg: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "#ef4444",
+  },
+  overspeedBanner: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#00000099",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+  },
+  overspeedText: {
+    flex: 1,
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  overspeedGif: {
+    width: 32,
+    height: 32,
   },
   resultBackdrop: {
     flex: 1,
