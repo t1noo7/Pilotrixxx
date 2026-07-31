@@ -99,6 +99,10 @@ export default function WaitingScreen() {
     latitude: number | null;
     longitude: number | null;
   } | null>(null);
+  const [driverPos, setDriverPos] = useState<{
+    latitude: number | null;
+    longitude: number | null;
+  } | null>(null);
   const vehicleReadyAtMsRef = useRef<number | null>(null);
 
   const topPanelOpacity = useRef(new Animated.Value(1)).current;
@@ -136,6 +140,14 @@ export default function WaitingScreen() {
         setInitialVehiclePos({
           latitude: current.vehicle_latitude ?? null,
           longitude: current.vehicle_longitude ?? null,
+        });
+        setInitialVehiclePos({
+          latitude: current.vehicle_latitude ?? null,
+          longitude: current.vehicle_longitude ?? null,
+        });
+        setDriverPos({
+          latitude: current.pickup_latitude ?? null,
+          longitude: current.pickup_longitude ?? null,
         });
       } catch (err: any) {
         console.log("getCurrentTrip hydrate error:", err.message);
@@ -479,6 +491,8 @@ export default function WaitingScreen() {
             latitude={livePosition.latitude}
             longitude={livePosition.longitude}
             heading={livePosition.heading}
+            driverLatitude={driverPos?.latitude ?? null}
+            driverLongitude={driverPos?.longitude ?? null}
           />
         ) : (
           <View style={styles.mapPlaceholder}>
@@ -584,7 +598,7 @@ const styles = StyleSheet.create({
   },
   subtitle: { fontSize: 13, color: "#6b7280", textAlign: "center" },
   startBtn: {
-    marginTop: 10,
+    marginTop: -4,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,

@@ -45,6 +45,8 @@ export interface CurrentTrip {
   resume_longitude: number | null;
   vehicle_latitude: number | null;
   vehicle_longitude: number | null;
+  pickup_latitude: number | null;
+  pickup_longitude: number | null;
 }
 
 export interface RiskScore {

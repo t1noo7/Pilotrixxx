@@ -64,6 +64,7 @@ driverTripsRouter.get('/trips/current', async (req, res) => {
             `SELECT t.trip_id, t.vehicle_id, t.started_at, t.scenario, t.status,
                     t.vehicle_ready_at, t.created_at,
                     t.demo_mode, t.dest_latitude, t.dest_longitude,
+                    t.pickup_latitude, t.pickup_longitude,
                     v.license_plate, v.model, v.vehicle_type,
                     v.last_latitude AS vehicle_latitude,
                     v.last_longitude AS vehicle_longitude,
