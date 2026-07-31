@@ -575,7 +575,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#e5e7eb",
   },
-  duck: { width: 100, height: 100 },
+  duck: { width: 120, height: 120 },
   title: {
     fontSize: 16,
     fontWeight: "700",
