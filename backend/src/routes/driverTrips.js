@@ -3,6 +3,7 @@ import { pool } from '../db.js';
 import { generateTripSummary } from '../services/tripSummaryService.js';
 import { runMlPredict } from './trips.js';
 import { handleTelemetryMessage } from '../services/telemetryService.js';
+import { getSpeedLimit } from '../services/speedLimitLookup.js';
 import { fleetControlNamespace, driverNamespace } from '../server.js';
 
 export const driverTripsRouter = express.Router();
@@ -279,13 +280,25 @@ driverTripsRouter.post('/trips/:id/telemetry', async (req, res) => {
         }
         const vehicleId = tripRes.rows[0].vehicle_id;
 
+        // Tra cuu gioi han toc do thuc te (OSM) theo toa do hien tai -
+        // truoc day chi hoat dong ben simulator/Python (scenario patrol/
+        // reposition), gio noi them cho trip 'manual' de mobile hien
+        // canh bao vuot toc do (SOS overspeed). Brute-force ~46.7k segment,
+        // ~5ms/lan, du nhe cho tan suat goi 1 lan/8s.
+        const speedLimit = getSpeedLimit(latitude, longitude);
+
+        // DEBUG TAM - xoa sau khi test xong SOS overspeed
+        console.log(
+            `[overspeed-debug] trip=${tripId} lat=${latitude} lng=${longitude} rawSpeed=${speed} speedLimit=${speedLimit}`,
+        );
+
         await handleTelemetryMessage('http', {
             vehicleId,
             tripId,
             ts: timestamp || new Date().toISOString(),
             position: {
                 latitude, longitude, valid: true, satellites: null,
-                speed: speed ?? null, speedLimit: null, heading: heading ?? null,
+                speed: speed ?? null, speedLimit, heading: heading ?? null,
             },
             acceleration: { x: accelX ?? null, y: accelY ?? null, z: null },
             brakeIntensity: brakeIntensity ?? null,
@@ -293,7 +306,7 @@ driverTripsRouter.post('/trips/:id/telemetry', async (req, res) => {
             device: { batteryLevel: null, gsmSignal: null, accuracy: accuracy ?? null },
         });
 
-        res.status(202).json({ received: true });
+        res.status(202).json({ received: true, speedLimit });
     } catch (err) {
         console.error('[POST /driver/trips/:id/telemetry] Error:', err.message);
         res.status(500).json({ error: 'Internal server error' });
