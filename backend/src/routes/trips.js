@@ -95,15 +95,22 @@ tripsRouter.post('/start', async (req, res) => {
             });
         }
 
-        // 2. Validate: xe nay dang co trip 'ongoing/pending' chua?
-        const ongoingRes = await client.query(
-            `SELECT trip_id FROM trips WHERE vehicle_id = $1 AND status IN ('ongoing', 'pending')`,
-            [vehicleId]
-        );
-        if (ongoingRes.rows.length > 0) {
-            return res.status(409).json({
-                error: `Vehicle ${vehicleId} dang co trip #${ongoingRes.rows[0].trip_id} chua ket thuc`,
-            });
+        // 2. Validate: xe nay dang co trip 'ongoing'/'pending' chua? BO QUA
+        // buoc nay neu chinh request dang tao la 'reposition' - day la co
+        // che dieu xe toi don driver, LUON can duoc phep ton tai song song
+        // voi trip 'manual' pending cua chinh xe do (thiet ke co chu dich,
+        // khong phai loi). Dieu kien nay phai khop voi index DB
+        // uq_vehicle_active_trip (WHERE scenario != 'reposition').
+        if (scenario !== 'reposition') {
+            const ongoingRes = await client.query(
+                `SELECT trip_id FROM trips WHERE vehicle_id = $1 AND status IN ('ongoing', 'pending') AND scenario != 'reposition'`,
+                [vehicleId]
+            );
+            if (ongoingRes.rows.length > 0) {
+                return res.status(409).json({
+                    error: `Vehicle ${vehicleId} dang co trip #${ongoingRes.rows[0].trip_id} chua ket thuc`,
+                });
+            }
         }
 
         // 3. Driver = assigned_driver_id cua chinh xe nay (da lay o buoc 1)
