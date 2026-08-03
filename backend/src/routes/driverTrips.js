@@ -287,11 +287,6 @@ driverTripsRouter.post('/trips/:id/telemetry', async (req, res) => {
         // ~5ms/lan, du nhe cho tan suat goi 1 lan/8s.
         const speedLimit = getSpeedLimit(latitude, longitude);
 
-        // DEBUG TAM - xoa sau khi test xong SOS overspeed
-        console.log(
-            `[overspeed-debug] trip=${tripId} lat=${latitude} lng=${longitude} rawSpeed=${speed} speedLimit=${speedLimit}`,
-        );
-
         await handleTelemetryMessage('http', {
             vehicleId,
             tripId,

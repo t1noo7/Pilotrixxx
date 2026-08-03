@@ -422,11 +422,6 @@ export default function TripScreen() {
             speedKmh != null &&
             speedKmh > speedLimit * OVERSPEED_TOLERANCE;
 
-          // DEBUG TAM - xoa sau khi test xong SOS overspeed
-          console.log(
-            `[overspeed-debug] mult=${speedTestMultiplierRef.current} rawSpeedMps=${coords.speed?.toFixed(2)} speedKmh=${speedKmh?.toFixed(1)} speedLimit=${speedLimit} isOver=${isOver} streak=${overspeedStreakRef.current}`,
-          );
-
           if (isOver) {
             overspeedStreakRef.current += 1;
             if (overspeedStreakRef.current >= OVERSPEED_STREAK_THRESHOLD) {
@@ -649,7 +644,7 @@ export default function TripScreen() {
           />
           <Text style={styles.overspeedText}>
             Đoạn đường bạn đang đi giới hạn tốc độ {overspeedLimit}km/h, hãy chú
-            ý nếu không muốn bị vặt lông
+            ý nếu không muốn bị vặt lông‼️
           </Text>
         </View>
       )}
