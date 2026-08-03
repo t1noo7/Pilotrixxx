@@ -169,6 +169,7 @@ def get_vehicles_with_active_manual_trip() -> set[int]:
 
 
 def start_vehicle(car: dict):
+    cur_lat, cur_lng = get_vehicle_position(car["vehicle_id"])
     stop_event = threading.Event()
     target_box = {"lat": None, "lng": None}
     t = threading.Thread(
@@ -179,6 +180,8 @@ def start_vehicle(car: dict):
             "log_prefix": car["device"][-3:],
             "stop_event": stop_event,
             "target_box": target_box,
+            "start_lat": cur_lat,
+            "start_lng": cur_lng,
         },
         daemon=True,
     )
