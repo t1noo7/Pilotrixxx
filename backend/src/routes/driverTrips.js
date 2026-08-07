@@ -115,6 +115,14 @@ driverTripsRouter.get('/trips/current', async (req, res) => {
             }
         }
 
+        if (trip) {
+            console.log(
+                `[resume-debug] trip=${trip.trip_id} started_at=${trip.started_at} ` +
+                `vehicle_last_pos=(${trip.vehicle_latitude},${trip.vehicle_longitude}) ` +
+                `resume_latitude=${trip.resume_latitude} resume_longitude=${trip.resume_longitude}`
+            );
+        }
+
         res.json(trip || null);
     } catch (err) {
         console.error('[GET /driver/trips/current] Error:', err.message);
