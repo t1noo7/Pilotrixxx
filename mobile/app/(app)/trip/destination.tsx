@@ -24,9 +24,16 @@ type PickMode = "address" | "map";
 const HANOI_FALLBACK = { latitude: 21.0469, longitude: 105.7855 };
 
 export default function DestinationScreen() {
-  const { id: tripId, vehicleType: vehicleTypeParam } = useLocalSearchParams<{
+  const {
+    id: tripId,
+    vehicleType: vehicleTypeParam,
+    vehicleLat: vehicleLatParam,
+    vehicleLng: vehicleLngParam,
+  } = useLocalSearchParams<{
     id: string;
     vehicleType?: string;
+    vehicleLat?: string;
+    vehicleLng?: string;
   }>();
   const vehicleType = (vehicleTypeParam as VehicleType) || "sedan";
 
@@ -48,6 +55,16 @@ export default function DestinationScreen() {
   useEffect(() => {
     if (pickMode !== "map" || mapCenter) return;
     (async () => {
+      // Uu tien vi tri XE (tiep noi dispatch) thay vi GPS dien thoai -
+      // GPS chi con la fallback neu vi tri xe chua duoc truyen qua (vd
+      // luong dieu huong khac chua kip cap nhat).
+      if (vehicleLatParam && vehicleLngParam) {
+        setMapCenter({
+          latitude: parseFloat(vehicleLatParam),
+          longitude: parseFloat(vehicleLngParam),
+        });
+        return;
+      }
       try {
         const loc = await Location.getCurrentPositionAsync({});
         setMapCenter({
@@ -58,7 +75,7 @@ export default function DestinationScreen() {
         setMapCenter(HANOI_FALLBACK);
       }
     })();
-  }, [pickMode, mapCenter]);
+  }, [pickMode, mapCenter, vehicleLatParam, vehicleLngParam]);
 
   // Debounce goi Nominatim - tranh spam API moi ky tu go (free-tier
   // ~1 req/giay), chi goi sau khi driver ngung go 500ms.

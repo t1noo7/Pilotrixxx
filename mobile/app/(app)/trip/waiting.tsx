@@ -230,6 +230,10 @@ export default function WaitingScreen() {
   }, [ready, tripId]);
 
   const livePosition = useVehicleLiveTracking(tripId, initialVehiclePos);
+  const livePositionRef = useRef(livePosition);
+  useEffect(() => {
+    livePositionRef.current = livePosition;
+  }, [livePosition]);
   const etaLabel = ready ? null : formatEta(livePosition?.etaSeconds ?? null);
   const spinnerFrame = useCyclingFrame(SPINNER_FRAMES, 180);
 
@@ -369,9 +373,19 @@ export default function WaitingScreen() {
       await activateTrip(tripId);
       await clearPendingTripId();
       await refreshOngoingTrip();
+      const vehiclePos = livePositionRef.current;
       router.replace({
         pathname: "/(app)/trip/destination",
-        params: { id: tripId, vehicleType },
+        params: {
+          id: tripId,
+          vehicleType,
+          ...(vehiclePos?.latitude != null && vehiclePos?.longitude != null
+            ? {
+                vehicleLat: String(vehiclePos.latitude),
+                vehicleLng: String(vehiclePos.longitude),
+              }
+            : {}),
+        },
       });
     } catch (err: any) {
       Alert.alert(
