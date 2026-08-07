@@ -238,10 +238,18 @@ export default function VehiclesScreen() {
 
     setStarting(true);
     try {
+      // Uu tien vi tri cuoi cung CUA CHINH XE lam diem don, khong dung GPS
+      // dien thoai nua - de dispatch noi tiep lien mach du co Ctrl+C/restart
+      // giua chung. GPS chi con la fallback cho truong hop xe CHUA TUNG co
+      // telemetry (last_latitude/longitude con NULL).
+      const pickupLatitude = vehicle.last_latitude ?? driverLocation.latitude;
+      const pickupLongitude =
+        vehicle.last_longitude ?? driverLocation.longitude;
+
       const { tripId } = await reserveTrip(
         vehicle.vehicle_id,
-        driverLocation.latitude,
-        driverLocation.longitude,
+        pickupLatitude,
+        pickupLongitude,
       );
       await refreshOngoingTrip();
       router.push({
