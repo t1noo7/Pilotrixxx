@@ -10,7 +10,16 @@ const STEP_INTERVAL_MS = 1000;
 const BASE_SPEED_MPS = 9; // ~32 km/h - toc do trung binh trong pho
 const TURN_SPEED_MPS = 3.5; // ~12 km/h - toc do luc vao cua gap
 const TURN_ANGLE_THRESHOLD_DEG = 35;
+const SHARP_TURN_ANGLE_DEG = 90;
+const MIN_TURN_SPEED_MPS = 2.0;
 const ARRIVAL_THRESHOLD_M = 30;
+// Dao dong nhe cho toc do "di thang" - random walk muot (khong nhay so
+// dot ngot tung tick) de tranh vo tinh cham nguong OVERSPEED_TOLERANCE
+// ben trip/[id].tsx (gioi han duong dan cu thap nhat hay gap la 30km/h,
+// nguong canh bao = 33km/h) - bien do +-15% quanh BASE_SPEED_MPS toi da
+// van con cach xa nguong do.
+const SPEED_JITTER_RATIO = 0.15;
+const SPEED_SMOOTHING = 0.25; // he so muot - cang thap cang tron, doi tu tu
 
 export interface DemoTickData {
   latitude: number;
@@ -21,6 +30,17 @@ export interface DemoTickData {
 
 export type DemoStatus = "idle" | "loading" | "running" | "arrived" | "error";
 
+// Noi suy tuyen tinh: goc cang gan SHARP_TURN_ANGLE_DEG, toc do cang
+// gan MIN_TURN_SPEED_MPS. Duoi TURN_ANGLE_THRESHOLD_DEG khong goi ham
+// nay (khong tinh la cua, giu jitter binh thuong).
+function speedForTurnAngle(angleDeg: number): number {
+  const clamped = Math.min(angleDeg, SHARP_TURN_ANGLE_DEG);
+  const ratio =
+    (clamped - TURN_ANGLE_THRESHOLD_DEG) /
+    (SHARP_TURN_ANGLE_DEG - TURN_ANGLE_THRESHOLD_DEG);
+  return TURN_SPEED_MPS - ratio * (TURN_SPEED_MPS - MIN_TURN_SPEED_MPS);
+}
+
 export function useDemoRouteSimulation(
   start: RoutePoint | null,
   destination: RoutePoint | null,
@@ -28,13 +48,14 @@ export function useDemoRouteSimulation(
   onArrived: () => void,
 ) {
   const [status, setStatus] = useState<DemoStatus>("idle");
-  const [distanceRemainingKm, setDistanceRemainingKm] = useState<
-    number | null
-  >(null);
+  const [distanceRemainingKm, setDistanceRemainingKm] = useState<number | null>(
+    null,
+  );
   const [etaSeconds, setEtaSeconds] = useState<number | null>(null);
 
   const routeRef = useRef<RoutePoint[]>([]);
   const cumDistRef = useRef<number[]>([]);
+  const currentSpeedRef = useRef(BASE_SPEED_MPS);
   const distIntoRouteRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const arrivedRef = useRef(false);
@@ -86,7 +107,7 @@ export function useDemoRouteSimulation(
         }
         idx = Math.min(idx, route.length - 1);
 
-        let speed = BASE_SPEED_MPS;
+        let turnAngleDeg = 0;
         if (idx < route.length - 1) {
           const prevBearing = computeBearing(
             route[idx - 1].latitude,
@@ -100,9 +121,20 @@ export function useDemoRouteSimulation(
             route[idx + 1].latitude,
             route[idx + 1].longitude,
           );
-          if (angleDiff(prevBearing, nextBearing) > TURN_ANGLE_THRESHOLD_DEG) {
-            speed = TURN_SPEED_MPS;
-          }
+          turnAngleDeg = angleDiff(prevBearing, nextBearing);
+        }
+        const isTurning = turnAngleDeg > TURN_ANGLE_THRESHOLD_DEG;
+
+        let speed: number;
+        if (isTurning) {
+          speed = speedForTurnAngle(turnAngleDeg);
+          currentSpeedRef.current = speed;
+        } else {
+          const jitterTarget =
+            BASE_SPEED_MPS * (1 + (Math.random() * 2 - 1) * SPEED_JITTER_RATIO);
+          currentSpeedRef.current +=
+            (jitterTarget - currentSpeedRef.current) * SPEED_SMOOTHING;
+          speed = currentSpeedRef.current;
         }
 
         distIntoRouteRef.current += speed * (STEP_INTERVAL_MS / 1000);
