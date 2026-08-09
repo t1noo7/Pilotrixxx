@@ -109,3 +109,16 @@ export async function setRouteMode(
   );
   return data;
 }
+
+export async function getAqiHeatmap(
+  lat: number,
+  lng: number,
+): Promise<{
+  center: { lat: number; lng: number };
+  points: [number, number, number][];
+}> {
+  const { data } = await apiClient.get("/api/aqi/heatmap", {
+    params: { lat, lng },
+  });
+  return data;
+}

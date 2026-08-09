@@ -14,7 +14,14 @@ import * as Location from "expo-location";
 import MapView, { Marker, Region, AnimatedRegion } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { sendTelemetry, endTrip, rateTrip } from "../../../src/api/driverTrips";
+import {
+  sendTelemetry,
+  endTrip,
+  rateTrip,
+  getAqiHeatmap,
+} from "../../../src/api/driverTrips";
+import { WebView } from "react-native-webview";
+import { AQI_HEATMAP_HTML } from "./aqiHeatmapHtml";
 import LoadingOverlay from "../../../src/components/LoadingOverlay";
 import VehicleIcon from "../../../src/components/VehicleIcon";
 import { useTrip } from "../../../src/context/TripContext";
@@ -111,6 +118,14 @@ export default function TripScreen() {
   // (khong can theo doi lien tuc nhu GPS that, vi vi tri xe se do route
   // simulator tu tinh tiep, khong phai do may that di chuyen).
   const [demoStart, setDemoStart] = useState<RoutePoint | null>(null);
+  const [aqiModalVisible, setAqiModalVisible] = useState(false);
+  const [aqiLoading, setAqiLoading] = useState(false);
+  const [aqiData, setAqiData] = useState<{
+    center: { lat: number; lng: number };
+    points: [number, number, number][];
+  } | null>(null);
+  const [webViewLoaded, setWebViewLoaded] = useState(false);
+  const aqiWebViewRef = useRef<WebView>(null);
 
   const startTimeRef = useRef(
     startedAt && !Number.isNaN(new Date(startedAt).getTime())
@@ -492,12 +507,40 @@ export default function TripScreen() {
     };
   }, [overspeedLimit != null]);
 
+  useEffect(() => {
+    if (webViewLoaded && aqiData) {
+      aqiWebViewRef.current?.postMessage(JSON.stringify(aqiData));
+    }
+  }, [webViewLoaded, aqiData]);
+
   const formatElapsed = (sec: number) => {
     const m = Math.floor(sec / 60)
       .toString()
       .padStart(2, "0");
     const s = (sec % 60).toString().padStart(2, "0");
     return `${m}:${s}`;
+  };
+
+  const openAqiModal = async () => {
+    setAqiModalVisible(true);
+    setAqiLoading(true);
+    try {
+      const lat = lastCoordsRef.current?.latitude ?? region!.latitude;
+      const lng = lastCoordsRef.current?.longitude ?? region!.longitude;
+      const data = await getAqiHeatmap(lat, lng);
+      setAqiData(data);
+    } catch (err) {
+      Alert.alert("Lỗi", "Không lấy được dữ liệu chất lượng không khí");
+      setAqiModalVisible(false);
+    } finally {
+      setAqiLoading(false);
+    }
+  };
+
+  const closeAqiModal = () => {
+    setAqiModalVisible(false);
+    setAqiData(null);
+    setWebViewLoaded(false);
   };
 
   const handleEndTrip = useCallback(() => {
@@ -636,6 +679,10 @@ export default function TripScreen() {
             </Text>
           </View>
         )}
+        <TouchableOpacity style={styles.statBox} onPress={openAqiModal}>
+          <Ionicons name="cloud-outline" size={18} color="#2563eb" />
+          <Text style={styles.statValue}>Không khí</Text>
+        </TouchableOpacity>
       </View>
 
       {overspeedLimit != null && (
@@ -720,6 +767,35 @@ export default function TripScreen() {
 
       {ending && !result && (
         <LoadingOverlay visible message="Đang xử lý kết quả chuyến đi..." />
+      )}
+
+      {aqiModalVisible && (
+        <Modal visible animationType="slide" onRequestClose={closeAqiModal}>
+          <View style={styles.aqiModalContainer}>
+            <View
+              style={[styles.aqiModalHeader, { paddingTop: insets.top + 8 }]}
+            >
+              <Text style={styles.aqiModalTitle}>
+                Chất lượng không khí quanh xe
+              </Text>
+              <TouchableOpacity onPress={closeAqiModal} hitSlop={8}>
+                <Ionicons name="close" size={26} color="#111827" />
+              </TouchableOpacity>
+            </View>
+            <WebView
+              ref={aqiWebViewRef}
+              originWhitelist={["*"]}
+              source={{ html: AQI_HEATMAP_HTML }}
+              onLoadEnd={() => setWebViewLoaded(true)}
+            />
+            {aqiLoading && (
+              <LoadingOverlay
+                visible
+                message="Đang tải dữ liệu chất lượng không khí..."
+              />
+            )}
+          </View>
+        </Modal>
       )}
 
       <Modal visible={!!result} transparent animationType="fade">
@@ -902,4 +978,15 @@ const styles = StyleSheet.create({
   starRow: { flexDirection: "row", gap: 6, marginTop: 4 },
   ratingHint: { fontSize: 12, color: "#6b7280" },
   resultBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
+  aqiModalContainer: { flex: 1, backgroundColor: "#fff" },
+  aqiModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e7eb",
+  },
+  aqiModalTitle: { fontSize: 16, fontWeight: "700", color: "#111827" },
 });
