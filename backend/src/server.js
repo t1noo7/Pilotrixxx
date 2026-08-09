@@ -16,6 +16,7 @@ import { authRouter } from './routes/auth.js';
 import { verifyToken, verifyDriverToken } from './middleware/authMiddleware.js';
 import { driverAuthRouter } from './routes/driverAuth.js';
 import { driverTripsRouter, handleVehicleReady, handleVehicleFailed } from './routes/driverTrips.js';
+import { aqiRouter } from './routes/aqi.js';
 
 dotenv.config();
 
@@ -128,6 +129,7 @@ app.use('/api/driver-auth', driverAuthRouter);
 // trip, lịch sử) -> yêu cầu verifyDriverToken. Tách hẳn khỏi /api/trips
 // (dành cho IoT Simulator/thiết bị) để 2 luồng độc lập nhau.
 app.use('/api/driver', verifyDriverToken, driverTripsRouter);
+app.use('/api/aqi', verifyDriverToken, aqiRouter);
 
 // /api/trips KHÔNG yêu cầu admin token: đây là route được IoT Simulator /
 // thiết bị trên xe gọi trực tiếp (start/end trip), không phải người dùng
