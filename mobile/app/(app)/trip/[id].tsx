@@ -63,6 +63,8 @@ export default function TripScreen() {
     destLng: destLngParam,
     resumeLat: resumeLatParam,
     resumeLng: resumeLngParam,
+    startLat: startLatParam,
+    startLng: startLngParam,
   } = useLocalSearchParams<{
     id: string;
     vehicleType?: string;
@@ -72,6 +74,8 @@ export default function TripScreen() {
     destLng?: string;
     resumeLat?: string;
     resumeLng?: string;
+    startLat?: string;
+    startLng?: string;
   }>();
   const vehicleType: VehicleType = (vehicleTypeParam as VehicleType) || "sedan";
   const { clearOngoingTrip, setLastKnownLocation } = useTrip();
@@ -300,6 +304,18 @@ export default function TripScreen() {
           setDemoStart({
             latitude: parseFloat(resumeLatParam),
             longitude: parseFloat(resumeLngParam),
+          });
+          return;
+        }
+        if (startLatParam && startLngParam) {
+          // Chuyen MOI (dat xe -> chon diem den) - dung vi tri XE tai thoi
+          // diem bat dau (da tiep noi dung dispatch tu destination.tsx),
+          // KHONG goi GPS dien thoai nua - tranh animation route demo bi
+          // "nhay" ve GPS tinh cua may test truoc khi chay toi diem den
+          // that su duoc chon.
+          setDemoStart({
+            latitude: parseFloat(startLatParam),
+            longitude: parseFloat(startLngParam),
           });
           return;
         }

@@ -15,6 +15,7 @@ import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import { searchAddresses, GeocodeResult } from "../../../src/api/geocode";
 import { setRouteMode } from "../../../src/api/driverTrips";
+import VehicleIcon from "../../../src/components/VehicleIcon";
 import type { VehicleType } from "../../../src/types";
 
 type PickMode = "address" | "map";
@@ -50,21 +51,44 @@ export default function DestinationScreen() {
     latitude: number;
     longitude: number;
   } | null>(null);
+  // Chan goi GPS lap lai - dung ref thay vi state `mapCenter` de KHONG
+  // dua mapCenter vao dependency array cua effect ben duoi (xem giai
+  // thich o comment effect).
+  const gpsFetchedRef = useRef(false);
 
-  // Lay vi tri hien tai 1 lan de can giua map luc chuyen sang "cam moc"
+  // Lay vi tri de can giua map luc chuyen sang "cam moc". QUAN TRONG:
+  // - `mapCenter` KHONG nam trong dependency array: neu de trong deps,
+  //   moi lan setMapCenter() tao ra 1 object THAM CHIEU MOI (dù cùng gia
+  //   tri so) se khien effect nghi mapCenter "doi" -> chay lai -> goi
+  //   setMapCenter() lai -> object moi khac -> chay lai... vong lap vo han
+  //   (loi "Maximum update depth exceeded").
+  // - Khi co vehicleLat/vehicleLng (vi tri xe, tiep noi dispatch), LUON
+  //   GHI DE mapCenter voi gia tri moi nhat (dùng functional update, chi
+  //   tao object moi neu gia tri THAT SU khac, tranh set thua) - vi
+  //   destination.tsx la 1 route path CO DINH (khong co [id] dong) nen
+  //   Expo Router co the khong remount component giua cac lan dieu huong
+  //   toi day, khien mapCenter cu (vd tu lan GPS loi truoc do, roi ve
+  //   HANOI_FALLBACK = trung depot) bi "dong bang" mai mai neu chi check
+  //   "if (mapCenter) return" nhu truoc.
+  // - Nhanh GPS that/HANOI_FALLBACK chi chay 1 lan duy nhat, chan boi
+  //   gpsFetchedRef (khong phai mapCenter).
   useEffect(() => {
-    if (pickMode !== "map" || mapCenter) return;
+    if (pickMode !== "map") return;
+
+    if (vehicleLatParam && vehicleLngParam) {
+      const lat = parseFloat(vehicleLatParam);
+      const lng = parseFloat(vehicleLngParam);
+      setMapCenter((prev) =>
+        prev && prev.latitude === lat && prev.longitude === lng
+          ? prev
+          : { latitude: lat, longitude: lng },
+      );
+      return;
+    }
+
+    if (gpsFetchedRef.current) return;
+    gpsFetchedRef.current = true;
     (async () => {
-      // Uu tien vi tri XE (tiep noi dispatch) thay vi GPS dien thoai -
-      // GPS chi con la fallback neu vi tri xe chua duoc truyen qua (vd
-      // luong dieu huong khac chua kip cap nhat).
-      if (vehicleLatParam && vehicleLngParam) {
-        setMapCenter({
-          latitude: parseFloat(vehicleLatParam),
-          longitude: parseFloat(vehicleLngParam),
-        });
-        return;
-      }
       try {
         const loc = await Location.getCurrentPositionAsync({});
         setMapCenter({
@@ -75,7 +99,7 @@ export default function DestinationScreen() {
         setMapCenter(HANOI_FALLBACK);
       }
     })();
-  }, [pickMode, mapCenter, vehicleLatParam, vehicleLngParam]);
+  }, [pickMode, vehicleLatParam, vehicleLngParam]);
 
   // Debounce goi Nominatim - tranh spam API moi ky tu go (free-tier
   // ~1 req/giay), chi goi sau khi driver ngung go 500ms.
@@ -161,6 +185,13 @@ export default function DestinationScreen() {
         demoMode: "1",
         destLat: String(selected.latitude),
         destLng: String(selected.longitude),
+        // Vi tri xe (tiep noi dispatch) - de trip/[id].tsx dung lam diem
+        // xuat phat animation route demo, thay vi GPS dien thoai. Chi co
+        // gia tri khi den tu waiting.tsx (dat chuyen moi); resume 1 trip
+        // dang do van uu tien resumeLat/resumeLng (buildTripScreenParams).
+        ...(vehicleLatParam && vehicleLngParam
+          ? { startLat: vehicleLatParam, startLng: vehicleLngParam }
+          : {}),
       },
     });
   };
@@ -283,6 +314,16 @@ export default function DestinationScreen() {
             <View style={styles.mapBox}>
               {mapCenter && (
                 <MapView
+                  // `initialRegion` chi ap dung DUY NHAT 1 LAN luc MapView
+                  // mount lan dau - doi mapCenter sau do KHONG lam ban do
+                  // tu di chuyen theo (day khong phai prop "controlled").
+                  // Neu MapView tung mount voi gia tri cu (vd depot tu lan
+                  // GPS loi truoc do) va khong bao gio unmount, no se "dinh"
+                  // o vi tri cu mai mai du state mapCenter da dung. Dung
+                  // `key={tripId}` de ep React remount MapView tu dau moi
+                  // khi bat dau 1 chuyen MOI - dam bao initialRegion luon
+                  // duoc ap dung tuoi moi.
+                  key={String(tripId)}
                   style={styles.map}
                   initialRegion={{
                     latitude: mapCenter.latitude,
@@ -292,6 +333,17 @@ export default function DestinationScreen() {
                   }}
                   onPress={handleMapPress}
                 >
+                  {vehicleLatParam && vehicleLngParam && (
+                    <Marker
+                      coordinate={{
+                        latitude: parseFloat(vehicleLatParam),
+                        longitude: parseFloat(vehicleLngParam),
+                      }}
+                      anchor={{ x: 0.5, y: 0.5 }}
+                    >
+                      <VehicleIcon type={vehicleType} height={32} />
+                    </Marker>
+                  )}
                   {selected && (
                     <Marker
                       coordinate={{
