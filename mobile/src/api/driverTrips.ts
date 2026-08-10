@@ -113,6 +113,7 @@ export async function setRouteMode(
 export async function getAqiHeatmap(
   lat: number,
   lng: number,
+  options?: { gridRadiusKm?: number; step?: number },
 ): Promise<{
   center: { lat: number; lng: number };
   points: [number, number, number][];
@@ -120,7 +121,12 @@ export async function getAqiHeatmap(
   noStationsNearby: boolean;
 }> {
   const { data } = await apiClient.get("/api/aqi/heatmap", {
-    params: { lat, lng },
+    params: {
+      lat,
+      lng,
+      gridRadiusKm: options?.gridRadiusKm,
+      step: options?.step,
+    },
   });
   return data;
 }

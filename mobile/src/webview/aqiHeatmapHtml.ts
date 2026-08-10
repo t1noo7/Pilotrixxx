@@ -50,30 +50,19 @@ function buildVehicleDivIcon(type, headingDeg) {
   var vehicleMarker = null;
   var heatLayer = null;
   var hasInitialCenter = false;
+  // Tich luy diem AQI doc theo lo trinh xe da di qua - KHONG bi thay the
+  // hoan toan moi lan refetch (khac renderData cu). Gioi han tong so diem
+  // de tranh phinh RAM/lag WebView khi chay chuyen dai.
+  var accumulatedPoints = [];
+  var MAX_ACCUMULATED_POINTS = 500;
 
-  function renderData(data) {
-    var center = data.center;
-    var points = data.points; // [[lat, lng, aqi], ...]
-
-    if (!hasInitialCenter) {
-      map.setView([center.lat, center.lng], 18);
-      hasInitialCenter = true;
-    }
-
-    if (vehicleMarker) map.removeLayer(vehicleMarker);
-    vehicleMarker = L.marker([center.lat, center.lng], {
-      icon: buildVehicleDivIcon(data.vehicleType, data.heading)
-    }).addTo(map);
-
+  function drawHeatLayer() {
     if (heatLayer) map.removeLayer(heatLayer);
-    if (!points || points.length === 0) return;
-
-    // Chuan hoa AQI (0-300+) ve intensity 0-1 cho Leaflet.heat
-    var heatPoints = points.map(function (p) {
+    if (accumulatedPoints.length === 0) return;
+    var heatPoints = accumulatedPoints.map(function (p) {
       var intensity = Math.min(p[2] / 150, 1);
       return [p[0], p[1], intensity];
     });
-    
     heatLayer = L.heatLayer(heatPoints, {
       radius: 45,
       blur: 35,
@@ -89,10 +78,41 @@ function buildVehicleDivIcon(type, headingDeg) {
     }).addTo(map);
   }
 
+  // Chi chay 1 lan duy nhat luc mo modal - dat center, tao marker, seed
+  // accumulatedPoints bang luoi AQI rong (context ban dau quanh vi tri mo modal).
+  function renderInitial(data) {
+    var center = data.center;
+    var points = data.points || [];
+
+    if (!hasInitialCenter) {
+      map.setView([center.lat, center.lng], 18);
+      hasInitialCenter = true;
+    }
+
+    vehicleMarker = L.marker([center.lat, center.lng], {
+      icon: buildVehicleDivIcon(data.vehicleType, data.heading)
+    }).addTo(map);
+
+    accumulatedPoints = points.slice(-MAX_ACCUMULATED_POINTS);
+    drawHeatLayer();
+  }
+
+  // Goi moi lan refetch (chunk nho quanh vi tri moi) - CHI gop them diem,
+  // KHONG dung lai marker, KHONG doi map center (updateVehiclePosition da
+  // lo rieng phan do).
+  function mergeTrailPoints(points) {
+    if (!points || points.length === 0) return;
+    accumulatedPoints = accumulatedPoints.concat(points);
+    if (accumulatedPoints.length > MAX_ACCUMULATED_POINTS) {
+      accumulatedPoints = accumulatedPoints.slice(accumulatedPoints.length - MAX_ACCUMULATED_POINTS);
+    }
+    drawHeatLayer();
+  }
+
   var markerAnimReq = null;
   function animateMarkerTo(lat, lng, durationMs) {
     if (!vehicleMarker) return;
-    durationMs = durationMs || 1800; // khop nhip GPS ping ~2000ms ben app chinh
+    durationMs = durationMs || 1800;
     var start = vehicleMarker.getLatLng();
     var startTime = null;
     if (markerAnimReq) cancelAnimationFrame(markerAnimReq);
@@ -110,7 +130,7 @@ function buildVehicleDivIcon(type, headingDeg) {
   function updateVehiclePosition(lat, lng, headingDeg) {
     if (!vehicleMarker) return;
     animateMarkerTo(lat, lng);
-    map.panTo([lat, lng], { animate: true, duration: 1.5, easeLinearity: 0.25 }); // giay, Leaflet tu smooth
+    map.panTo([lat, lng], { animate: true, duration: 1.5, easeLinearity: 0.25 });
     var el = vehicleMarker.getElement();
     if (!el) return;
     var rotWrap = el.querySelector('.vehicle-icon-rotate');
@@ -128,10 +148,13 @@ function buildVehicleDivIcon(type, headingDeg) {
       updateVehiclePosition(data.lat, data.lng, data.heading);
       return;
     }
-    renderData(data);
+    if (data.type === 'trail') {
+      mergeTrailPoints(data.points);
+      return;
+    }
+    renderInitial(data); // type === 'initial' (hoac khong co type, tuong thich nguoc)
   }
 
-  // WebView.postMessage tu React Native: iOS bat qua window, Android qua document
   document.addEventListener('message', handleMessage);
   window.addEventListener('message', handleMessage);
 </script>

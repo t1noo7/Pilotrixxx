@@ -3,15 +3,11 @@ import { fetchAndCacheStations, generateHeatmapGrid, interpolateAqi } from '../s
 
 export const aqiRouter = express.Router();
 
-/**
- * GET /api/aqi/heatmap?lat=..&lng=..
- * Tra ve luoi diem [lat, lng, aqi] quanh vi tri xe, cho WebView (Leaflet.heat)
- * ve heatmap. Chi goi khi driver mo modal "Xem chat luong khong khi" trong
- * trip/[id].tsx - khong phai polling lien tuc.
- */
 aqiRouter.get('/heatmap', async (req, res) => {
     const lat = parseFloat(req.query.lat);
     const lng = parseFloat(req.query.lng);
+    const gridRadiusKm = req.query.gridRadiusKm !== undefined ? parseFloat(req.query.gridRadiusKm) : undefined;
+    const step = req.query.step !== undefined ? parseFloat(req.query.step) : undefined;
 
     if (Number.isNaN(lat) || Number.isNaN(lng)) {
         return res.status(400).json({ error: 'lat va lng la bat buoc va phai la so' });
@@ -20,16 +16,18 @@ aqiRouter.get('/heatmap', async (req, res) => {
     try {
         await fetchAndCacheStations();
 
-        const points = await generateHeatmapGrid(lat, lng);
-        // AQI tai dung vi tri xe (khong phai trung binh luoi) - dung
-        // interpolateAqi da co san, chinh xac hon avg ca luoi vi diem
-        // giua luoi (vi tri xe) la thu nguoi dung quan tam nhat.
+        const points = await generateHeatmapGrid(
+            lat,
+            lng,
+            Number.isNaN(gridRadiusKm) ? undefined : gridRadiusKm,
+            Number.isNaN(step) ? undefined : step,
+        );
         const currentAqi = await interpolateAqi(lat, lng);
 
         res.json({
             center: { lat, lng },
             points,
-            currentAqi, // null neu khong co tram nao trong ban kinh IDW_RADIUS_KM
+            currentAqi,
             noStationsNearby: currentAqi === null,
         });
     } catch (err) {

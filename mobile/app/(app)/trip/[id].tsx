@@ -520,9 +520,10 @@ export default function TripScreen() {
   }, [overspeedLimit != null]);
 
   useEffect(() => {
-    if (webViewLoaded && aqiData) {
+    if (webViewLoaded && aqiData && !aqiRenderedRef.current) {
       aqiWebViewRef.current?.postMessage(
         JSON.stringify({
+          type: "initial",
           ...aqiData,
           vehicleType,
           heading: headingRef.current,
@@ -532,25 +533,54 @@ export default function TripScreen() {
     }
   }, [webViewLoaded, aqiData, vehicleType]);
 
-  // Cap nhat vi tri + huong xe tren map AQI theo thoi gian thuc, tan dung
-  // lastCoordsRef/heading dang duoc GPS (hoac route simulator) cap nhat san
-  // cho map chinh - khong goi lai getAqiHeatmap. Throttle ~2000ms giong
-  // cadence GPS ping hien co, tranh spam postMessage moi lan render.
+  // Refetch chunk NHO quanh vi tri moi khi xe di > 400m VA > 15s tu lan
+  // fetch truoc - gui rieng type "trail" de WebView GOP THEM diem thay vi
+  // thay the toan bo heatmap (tao hieu ung "ve doc theo duong di"). Chi
+  // cap nhat currentAqi/noStationsNearby cho badge, KHONG dong bo lai
+  // points/center vao aqiData chinh (tranh trigger lai effect gui "initial"
+  // va tao lai marker o (a)).
   useEffect(() => {
     if (!aqiModalVisible || !aqiRenderedRef.current) return;
-    const now = Date.now();
-    if (now - lastAqiPosSentRef.current < 2000) return;
     const coords = lastCoordsRef.current;
-    if (!coords) return;
-    lastAqiPosSentRef.current = now;
-    aqiWebViewRef.current?.postMessage(
-      JSON.stringify({
-        type: "position",
-        lat: coords.latitude,
-        lng: coords.longitude,
-        heading: headingRef.current,
-      }),
+    const last = lastAqiFetchRef.current;
+    if (!coords || !last) return;
+
+    const now = Date.now();
+    const movedMeters = computeDistanceMeters(
+      last.lat,
+      last.lng,
+      coords.latitude,
+      coords.longitude,
     );
+    if (movedMeters < 400 || now - last.time < 15000) return;
+
+    lastAqiFetchRef.current = {
+      lat: coords.latitude,
+      lng: coords.longitude,
+      time: now,
+    };
+
+    getAqiHeatmap(coords.latitude, coords.longitude, {
+      gridRadiusKm: 1,
+      step: 0.3,
+    })
+      .then((data) => {
+        aqiWebViewRef.current?.postMessage(
+          JSON.stringify({ type: "trail", points: data.points }),
+        );
+        setAqiData((prev) =>
+          prev
+            ? {
+                ...prev,
+                currentAqi: data.currentAqi,
+                noStationsNearby: data.noStationsNearby,
+              }
+            : prev,
+        );
+      })
+      .catch(() => {
+        // Refetch nen, im lang bo qua loi - giu heatmap/badge cu, khong Alert.
+      });
   }, [region, aqiModalVisible]);
 
   // Refetch AQI khi xe di chuyen du xa - KHONG polling deu dan. Dieu kien:
