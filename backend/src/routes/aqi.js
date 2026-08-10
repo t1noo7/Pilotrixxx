@@ -1,5 +1,5 @@
 import express from 'express';
-import { fetchAndCacheStations, generateHeatmapGrid } from '../services/aqiService.js';
+import { fetchAndCacheStations, generateHeatmapGrid, interpolateAqi } from '../services/aqiService.js';
 
 export const aqiRouter = express.Router();
 
@@ -18,12 +18,20 @@ aqiRouter.get('/heatmap', async (req, res) => {
     }
 
     try {
-        // Lazy refresh: chi thuc su goi WAQI neu cache da qua 30 phut
-        // (xem CACHE_FRESH_MS trong aqiService.js) - khong polling nen.
         await fetchAndCacheStations();
 
         const points = await generateHeatmapGrid(lat, lng);
-        res.json({ center: { lat, lng }, points });
+        // AQI tai dung vi tri xe (khong phai trung binh luoi) - dung
+        // interpolateAqi da co san, chinh xac hon avg ca luoi vi diem
+        // giua luoi (vi tri xe) la thu nguoi dung quan tam nhat.
+        const currentAqi = await interpolateAqi(lat, lng);
+
+        res.json({
+            center: { lat, lng },
+            points,
+            currentAqi, // null neu khong co tram nao trong ban kinh IDW_RADIUS_KM
+            noStationsNearby: currentAqi === null,
+        });
     } catch (err) {
         console.error('[GET /aqi/heatmap] Error:', err.message);
         res.status(500).json({ error: 'Internal server error' });

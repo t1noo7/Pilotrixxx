@@ -21,7 +21,7 @@ import {
   getAqiHeatmap,
 } from "../../../src/api/driverTrips";
 import { WebView } from "react-native-webview";
-import { AQI_HEATMAP_HTML } from "./aqiHeatmapHtml";
+import { AQI_HEATMAP_HTML } from "../../../src/webview/aqiHeatmapHtml";
 import LoadingOverlay from "../../../src/components/LoadingOverlay";
 import VehicleIcon from "../../../src/components/VehicleIcon";
 import { useTrip } from "../../../src/context/TripContext";
@@ -123,9 +123,19 @@ export default function TripScreen() {
   const [aqiData, setAqiData] = useState<{
     center: { lat: number; lng: number };
     points: [number, number, number][];
+    currentAqi: number | null;
+    noStationsNearby: boolean;
   } | null>(null);
   const [webViewLoaded, setWebViewLoaded] = useState(false);
   const aqiWebViewRef = useRef<WebView>(null);
+  const aqiRenderedRef = useRef(false); // true sau khi renderData() đã chạy lần đầu trong WebView
+  const lastAqiPosSentRef = useRef(0); // throttle timestamp
+  const lastAqiFetchRef = useRef<{
+    lat: number;
+    lng: number;
+    time: number;
+  } | null>(null);
+  const headingRef = useRef(0);
 
   const startTimeRef = useRef(
     startedAt && !Number.isNaN(new Date(startedAt).getTime())
@@ -237,10 +247,12 @@ export default function TripScreen() {
           longitude,
         );
         setHeading(bearing);
+        headingRef.current = bearing;
       } else if (rawHeading != null) {
         // Che do demo: route simulator da tinh san huong tu doan polyline
         // OSRM, dung truc tiep thay vi doi toc do vuot MIN_SPEED_FOR_HEADING.
         setHeading(rawHeading);
+        headingRef.current = rawHeading;
       }
       prevPointRef.current = { latitude, longitude };
       prevFixTimeRef.current = Date.now();
@@ -509,9 +521,71 @@ export default function TripScreen() {
 
   useEffect(() => {
     if (webViewLoaded && aqiData) {
-      aqiWebViewRef.current?.postMessage(JSON.stringify(aqiData));
+      aqiWebViewRef.current?.postMessage(
+        JSON.stringify({
+          ...aqiData,
+          vehicleType,
+          heading: headingRef.current,
+        }),
+      );
+      aqiRenderedRef.current = true;
     }
-  }, [webViewLoaded, aqiData]);
+  }, [webViewLoaded, aqiData, vehicleType]);
+
+  // Cap nhat vi tri + huong xe tren map AQI theo thoi gian thuc, tan dung
+  // lastCoordsRef/heading dang duoc GPS (hoac route simulator) cap nhat san
+  // cho map chinh - khong goi lai getAqiHeatmap. Throttle ~2000ms giong
+  // cadence GPS ping hien co, tranh spam postMessage moi lan render.
+  useEffect(() => {
+    if (!aqiModalVisible || !aqiRenderedRef.current) return;
+    const now = Date.now();
+    if (now - lastAqiPosSentRef.current < 2000) return;
+    const coords = lastCoordsRef.current;
+    if (!coords) return;
+    lastAqiPosSentRef.current = now;
+    aqiWebViewRef.current?.postMessage(
+      JSON.stringify({
+        type: "position",
+        lat: coords.latitude,
+        lng: coords.longitude,
+        heading: headingRef.current,
+      }),
+    );
+  }, [region, aqiModalVisible]);
+
+  // Refetch AQI khi xe di chuyen du xa - KHONG polling deu dan. Dieu kien:
+  // da di > 400m TU DIEM FETCH GAN NHAT + da qua >= 15s tu lan fetch truoc,
+  // ca 2 dieu kien phai dung moi goi lai. Khong ton them goi WAQI thuc su vi
+  // backend da cache tram 30 phut (CACHE_FRESH_MS) - lan goi lai chi tinh IDW
+  // trong RAM tu cache co san, khong phai goi lai API ben thu 3.
+  useEffect(() => {
+    if (!aqiModalVisible || !aqiRenderedRef.current) return;
+    const coords = lastCoordsRef.current;
+    const last = lastAqiFetchRef.current;
+    if (!coords || !last) return;
+
+    const now = Date.now();
+    const movedMeters = computeDistanceMeters(
+      last.lat,
+      last.lng,
+      coords.latitude,
+      coords.longitude,
+    );
+    if (movedMeters < 400 || now - last.time < 15000) return;
+
+    lastAqiFetchRef.current = {
+      lat: coords.latitude,
+      lng: coords.longitude,
+      time: now,
+    };
+
+    getAqiHeatmap(coords.latitude, coords.longitude)
+      .then((data) => setAqiData(data))
+      .catch(() => {
+        // Refetch nen, im lang bo qua loi - giu heatmap cu tren man hinh,
+        // khong Alert lap lai (khac voi lan fetch dau trong openAqiModal).
+      });
+  }, [region, aqiModalVisible]);
 
   const formatElapsed = (sec: number) => {
     const m = Math.floor(sec / 60)
@@ -529,6 +603,7 @@ export default function TripScreen() {
       const lng = lastCoordsRef.current?.longitude ?? region!.longitude;
       const data = await getAqiHeatmap(lat, lng);
       setAqiData(data);
+      lastAqiFetchRef.current = { lat, lng, time: Date.now() }; // + dong nay
     } catch (err) {
       Alert.alert("Lỗi", "Không lấy được dữ liệu chất lượng không khí");
       setAqiModalVisible(false);
@@ -541,6 +616,8 @@ export default function TripScreen() {
     setAqiModalVisible(false);
     setAqiData(null);
     setWebViewLoaded(false);
+    aqiRenderedRef.current = false;
+    lastAqiFetchRef.current = null;
   };
 
   const handleEndTrip = useCallback(() => {
@@ -679,9 +756,9 @@ export default function TripScreen() {
             </Text>
           </View>
         )}
-        <TouchableOpacity style={styles.statBox} onPress={openAqiModal}>
-          <Ionicons name="cloud-outline" size={18} color="#2563eb" />
-          <Text style={styles.statValue}>Không khí</Text>
+        <TouchableOpacity style={styles.aqiButton} onPress={openAqiModal}>
+          <Ionicons name="cloud-outline" size={18} color="#fff" />
+          <Text style={styles.aqiButtonText}>Không khí</Text>
         </TouchableOpacity>
       </View>
 
@@ -775,11 +852,24 @@ export default function TripScreen() {
             <View
               style={[styles.aqiModalHeader, { paddingTop: insets.top + 8 }]}
             >
-              <Text style={styles.aqiModalTitle}>
-                Chất lượng không khí quanh xe
-              </Text>
-              <TouchableOpacity onPress={closeAqiModal} hitSlop={8}>
-                <Ionicons name="close" size={26} color="#111827" />
+              <View style={styles.aqiModalTitleGroup}>
+                <Text style={styles.aqiModalTitle}>
+                  Chất lượng không khí quanh xe
+                </Text>
+                <Text style={styles.aqiModalSubtitle}>
+                  {aqiData?.noStationsNearby
+                    ? "Không có trạm quan trắc gần khu vực này"
+                    : aqiData?.currentAqi != null
+                      ? `AQI hiện tại: ${Math.round(aqiData.currentAqi)}`
+                      : ""}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={closeAqiModal}
+                hitSlop={12}
+                style={styles.aqiCloseBtn}
+              >
+                <Ionicons name="close" size={24} color="#111827" />
               </TouchableOpacity>
             </View>
             <WebView
@@ -988,5 +1078,29 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#e5e7eb",
   },
+  aqiModalTitleGroup: { flex: 1, marginRight: 12 },
   aqiModalTitle: { fontSize: 16, fontWeight: "700", color: "#111827" },
+  aqiModalSubtitle: { fontSize: 12, color: "#6b7280", marginTop: 2 },
+  aqiButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#0891b2",
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  aqiButtonText: { fontSize: 14, fontWeight: "600", color: "#fff" },
+  aqiCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#f3f4f6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

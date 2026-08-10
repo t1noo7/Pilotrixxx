@@ -116,6 +116,8 @@ export async function getAqiHeatmap(
 ): Promise<{
   center: { lat: number; lng: number };
   points: [number, number, number][];
+  currentAqi: number | null;
+  noStationsNearby: boolean;
 }> {
   const { data } = await apiClient.get("/api/aqi/heatmap", {
     params: { lat, lng },
