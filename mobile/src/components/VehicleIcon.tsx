@@ -210,6 +210,65 @@ const VEHICLE_SVG: Record<VehicleType, VehicleSvgDef> = {
       <rect x="41" y="122" width="18" height="7" rx="3" fill="#f7f7f7" stroke="#0b1220" stroke-width="1" />
     `,
   },
+  tank: {
+    viewBox: "0 0 100 170",
+    body: `
+      <rect x="2" y="8" width="20" height="154" rx="9" fill="#1c1f10" stroke="#0b1220" stroke-width="2.2" />
+      <circle cx="12" cy="20" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+      <circle cx="12" cy="42" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+      <circle cx="12" cy="64" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+      <circle cx="12" cy="86" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+      <circle cx="12" cy="108" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+      <circle cx="12" cy="130" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+      <circle cx="12" cy="150" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+      <path d="M3,28 L0,31 L3,34 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+      <path d="M3,50 L0,53 L3,56 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+      <path d="M3,72 L0,75 L3,78 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+      <path d="M3,94 L0,97 L3,100 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+      <path d="M3,116 L0,119 L3,122 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+      <path d="M3,137 L0,140 L3,143 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+      <rect x="78" y="8" width="20" height="154" rx="9" fill="#1c1f10" stroke="#0b1220" stroke-width="2.2" />
+      <circle cx="88" cy="20" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+      <circle cx="88" cy="42" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+      <circle cx="88" cy="64" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+      <circle cx="88" cy="86" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+      <circle cx="88" cy="108" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+      <circle cx="88" cy="130" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+      <circle cx="88" cy="150" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+      <path d="M97,28 L100,31 L97,34 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+      <path d="M97,50 L100,53 L97,56 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+      <path d="M97,72 L100,75 L97,78 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+      <path d="M97,94 L100,97 L97,100 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+      <path d="M97,116 L100,119 L97,122 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+      <path d="M97,137 L100,140 L97,143 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+      <rect x="24" y="20" width="52" height="140" rx="10" fill="#5a6b2f" stroke="#0b1220" stroke-width="2.4" />
+      <path d="M28 22 L72 22 L68 40 L32 40 Z" fill="#4b5320" stroke="#0b1220" stroke-width="1.2" />
+      <rect x="26" y="134" width="48" height="24" rx="5" fill="#3d451f" stroke="#0b1220" stroke-width="1.8" />
+      <line x1="33" y1="140" x2="37" y2="152" stroke="#2a2f16" stroke-width="2" />
+      <line x1="42" y1="140" x2="46" y2="152" stroke="#2a2f16" stroke-width="2" />
+      <line x1="54" y1="140" x2="58" y2="152" stroke="#2a2f16" stroke-width="2" />
+      <line x1="63" y1="140" x2="67" y2="152" stroke="#2a2f16" stroke-width="2" />
+      <circle cx="50" cy="78" r="27" fill="#4b5320" stroke="#0b1220" stroke-width="2.2" />
+      <circle cx="50" cy="78" r="22" fill="#5a6b2f" stroke="#3d451f" stroke-width="1.4" />
+      <rect x="41" y="52" width="18" height="16" rx="3" fill="#3d451f" stroke="#0b1220" stroke-width="1.6" />
+      <rect x="44" y="0" width="12" height="56" rx="2" fill="#3d451f" stroke="#0b1220" stroke-width="1.8" />
+      <rect x="42" y="0" width="16" height="9" rx="1.5" fill="#2a2f16" stroke="#0b1220" stroke-width="1.4" />
+      <rect x="44" y="2" width="3" height="5" fill="#0b1220" />
+      <rect x="53" y="2" width="3" height="5" fill="#0b1220" />
+      <circle cx="62" cy="70" r="6" fill="#2a2f16" stroke="#0b1220" stroke-width="1.2" />
+      <circle cx="37" cy="88" r="5" fill="#2a2f16" stroke="#0b1220" stroke-width="1.2" />
+      <rect x="47" y="60" width="6" height="4" rx="1" fill="#8fd0f4" stroke="#5aa8d6" stroke-width="0.5" />
+      <rect x="58" y="66" width="5" height="4" rx="1" fill="#8fd0f4" stroke="#5aa8d6" stroke-width="0.5" />
+      <line x1="70" y1="60" x2="78" y2="26" stroke="#2a2f16" stroke-width="1.4" />
+      <circle cx="78" cy="24" r="1.8" fill="#2a2f16" />
+      <circle cx="50" cy="96" r="8" fill="#f7f7f7" stroke="#0b1220" stroke-width="1.2" />
+      <path d="M50 90 L52.5 95 L58 95.5 L54 99 L55.5 104.5 L50 101.5 L44.5 104.5 L46 99 L42 95.5 L47.5 95 Z" fill="#c9a24b" />
+      <rect x="26" y="118" width="14" height="10" rx="2" fill="#3d451f" stroke="#0b1220" stroke-width="1.2" />
+      <rect x="60" y="118" width="14" height="10" rx="2" fill="#3d451f" stroke="#0b1220" stroke-width="1.2" />
+      <rect x="30" y="158" width="7" height="5" rx="1.5" fill="#2a2f16" stroke="#0b1220" stroke-width="1" />
+      <rect x="63" y="158" width="7" height="5" rx="1.5" fill="#2a2f16" stroke="#0b1220" stroke-width="1" />
+    `,
+  },
 };
 
 // Kích thước hiển thị mặc định cho từng loại - port từ VEHICLE_DISPLAY_SIZE
@@ -222,6 +281,7 @@ const VEHICLE_DISPLAY_SIZE: Record<VehicleType, [number, number]> = {
   bus: [22, 46],
   tractor: [26, 44],
   duck: [26, 36],
+  tank: [25, 42],
 };
 
 type VehicleIconProps = {

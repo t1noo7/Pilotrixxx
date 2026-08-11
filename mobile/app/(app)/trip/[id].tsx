@@ -135,6 +135,39 @@ export default function TripScreen() {
     lng: number;
     time: number;
   } | null>(null);
+  const AQI_CACHE_STALE_MS = 30 * 60 * 1000; // khop CACHE_FRESH_MS ben backend - giu lau hon vo nghia
+  const AQI_CELL_PRECISION = 1000; // lam tron toa do ve ~100m/o de gom trung diem giua cac lan fetch khac center
+
+  function aqiCellKey(lat: number, lng: number) {
+    return `${Math.round(lat * AQI_CELL_PRECISION)}_${Math.round(lng * AQI_CELL_PRECISION)}`;
+  }
+
+  // Tich luy AQI theo tung "o" toa do doc suot ca chuyen (khong bi xoa khi
+  // dong/mo lai modal - chi mat khi roi han man hinh trip). Value luu ca
+  // updatedAt de biet o nao da qua cu (>30p) can cho refetch de.
+  const aqiTrailRef = useRef<
+    Map<string, { lat: number; lng: number; aqi: number; updatedAt: number }>
+  >(new Map());
+
+  function mergeAqiTrailPoints(points: [number, number, number][]) {
+    const trail = aqiTrailRef.current;
+    const now = Date.now();
+    const delta: [number, number, number][] = [];
+    for (const [lat, lng, aqi] of points) {
+      const key = aqiCellKey(lat, lng);
+      const existing = trail.get(key);
+      if (!existing || now - existing.updatedAt > AQI_CACHE_STALE_MS) {
+        trail.set(key, { lat, lng, aqi, updatedAt: now });
+        delta.push([lat, lng, aqi]);
+      }
+    }
+    while (trail.size > 500) {
+      const oldestKey = trail.keys().next().value;
+      if (oldestKey === undefined) break;
+      trail.delete(oldestKey);
+    }
+    return delta;
+  }
   const headingRef = useRef(0);
 
   const startTimeRef = useRef(
@@ -530,8 +563,39 @@ export default function TripScreen() {
         }),
       );
       aqiRenderedRef.current = true;
+
+      mergeAqiTrailPoints(aqiData.points);
+      const restored = Array.from(aqiTrailRef.current.values()).map(
+        (p) => [p.lat, p.lng, p.aqi] as [number, number, number],
+      );
+      if (restored.length > 0) {
+        aqiWebViewRef.current?.postMessage(
+          JSON.stringify({ type: "trail", points: restored }),
+        );
+      }
     }
   }, [webViewLoaded, aqiData, vehicleType]);
+
+  // Cap nhat vi tri + huong xe tren map AQI theo thoi gian thuc, tan dung
+  // lastCoordsRef/headingRef dang duoc GPS/route simulator cap nhat san
+  // cho map chinh - khong goi lai backend AQI. Throttle ~2000ms giong
+  // cadence GPS ping hien co.
+  useEffect(() => {
+    if (!aqiModalVisible || !aqiRenderedRef.current) return;
+    const now = Date.now();
+    if (now - lastAqiPosSentRef.current < 2000) return;
+    const coords = lastCoordsRef.current;
+    if (!coords) return;
+    lastAqiPosSentRef.current = now;
+    aqiWebViewRef.current?.postMessage(
+      JSON.stringify({
+        type: "position",
+        lat: coords.latitude,
+        lng: coords.longitude,
+        heading: headingRef.current,
+      }),
+    );
+  }, [region, aqiModalVisible]);
 
   // Refetch chunk NHO quanh vi tri moi khi xe di > 400m VA > 15s tu lan
   // fetch truoc - gui rieng type "trail" de WebView GOP THEM diem thay vi
@@ -552,7 +616,7 @@ export default function TripScreen() {
       coords.latitude,
       coords.longitude,
     );
-    if (movedMeters < 400 || now - last.time < 15000) return;
+    if (movedMeters < 250 || now - last.time < 15000) return;
 
     lastAqiFetchRef.current = {
       lat: coords.latitude,
@@ -561,13 +625,16 @@ export default function TripScreen() {
     };
 
     getAqiHeatmap(coords.latitude, coords.longitude, {
-      gridRadiusKm: 1,
-      step: 0.3,
+      gridRadiusKm: 0.4,
+      step: 0.15,
     })
       .then((data) => {
-        aqiWebViewRef.current?.postMessage(
-          JSON.stringify({ type: "trail", points: data.points }),
-        );
+        const delta = mergeAqiTrailPoints(data.points);
+        if (delta.length > 0) {
+          aqiWebViewRef.current?.postMessage(
+            JSON.stringify({ type: "trail", points: delta }),
+          );
+        }
         setAqiData((prev) =>
           prev
             ? {
@@ -578,43 +645,7 @@ export default function TripScreen() {
             : prev,
         );
       })
-      .catch(() => {
-        // Refetch nen, im lang bo qua loi - giu heatmap/badge cu, khong Alert.
-      });
-  }, [region, aqiModalVisible]);
-
-  // Refetch AQI khi xe di chuyen du xa - KHONG polling deu dan. Dieu kien:
-  // da di > 400m TU DIEM FETCH GAN NHAT + da qua >= 15s tu lan fetch truoc,
-  // ca 2 dieu kien phai dung moi goi lai. Khong ton them goi WAQI thuc su vi
-  // backend da cache tram 30 phut (CACHE_FRESH_MS) - lan goi lai chi tinh IDW
-  // trong RAM tu cache co san, khong phai goi lai API ben thu 3.
-  useEffect(() => {
-    if (!aqiModalVisible || !aqiRenderedRef.current) return;
-    const coords = lastCoordsRef.current;
-    const last = lastAqiFetchRef.current;
-    if (!coords || !last) return;
-
-    const now = Date.now();
-    const movedMeters = computeDistanceMeters(
-      last.lat,
-      last.lng,
-      coords.latitude,
-      coords.longitude,
-    );
-    if (movedMeters < 400 || now - last.time < 15000) return;
-
-    lastAqiFetchRef.current = {
-      lat: coords.latitude,
-      lng: coords.longitude,
-      time: now,
-    };
-
-    getAqiHeatmap(coords.latitude, coords.longitude)
-      .then((data) => setAqiData(data))
-      .catch(() => {
-        // Refetch nen, im lang bo qua loi - giu heatmap cu tren man hinh,
-        // khong Alert lap lai (khac voi lan fetch dau trong openAqiModal).
-      });
+      .catch(() => {});
   }, [region, aqiModalVisible]);
 
   const formatElapsed = (sec: number) => {

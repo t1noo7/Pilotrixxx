@@ -11,7 +11,8 @@ export type VehicleType =
   | "limousine"
   | "bus"
   | "tractor"
-  | "duck";
+  | "duck"
+  | "tank";
 
 export type VehicleStatus = "available" | "incoming" | "renting";
 
