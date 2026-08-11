@@ -4,6 +4,7 @@ import path from 'path';
 import express from 'express';
 import { pool } from '../db.js';
 import { generateTripSummary } from '../services/tripSummaryService.js';
+import { io } from '../server.js';
 
 // Đường dẫn tới predict.py: backend/src/routes/ -> lên 3 cấp -> ml/predict.py
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -156,13 +157,21 @@ tripsRouter.post('/:id/end', async (req, res) => {
         const result = await client.query(
             `UPDATE trips SET status = 'completed', ended_at = now()
        WHERE trip_id = $1 AND status = 'ongoing'
-       RETURNING trip_id`,
+       RETURNING trip_id, vehicle_id`,
             [tripId]
         );
 
         if (result.rows.length === 0) {
             return res.status(404).json({ error: `Trip #${tripId} khong ton tai hoac da ket thuc` });
         }
+
+        const vehicleId = result.rows[0].vehicle_id;
+
+        // Bao ngay cho admin dashboard biet xe nay het chuyen - tranh
+        // FleetMap.jsx ket status "online" mai (Socket.IO vehicle:position
+        // truoc gio chi cong don status "online", chua co event nao bao
+        // nguoc lai "offline" khi trip completed/aborted).
+        io.emit('trip:completed', { tripId, vehicleId, status: 'completed' });
 
         // Trigger Trip Summary Generator ngay sau khi trip chuyen 'completed'.
         // Chay TACH RIENG transaction voi UPDATE phia tren (da COMMIT ngam dinh
@@ -222,13 +231,15 @@ tripsRouter.post('/:id/abort', async (req, res) => {
         const result = await pool.query(
             `UPDATE trips SET status = 'aborted', ended_at = now()
              WHERE trip_id = $1 AND status = 'ongoing'
-             RETURNING trip_id`,
+             RETURNING trip_id, vehicle_id`,
             [tripId]
         );
 
         if (result.rows.length === 0) {
             return res.status(404).json({ error: `Trip #${tripId} khong ton tai hoac da ket thuc` });
         }
+
+        io.emit('trip:completed', { tripId, vehicleId: result.rows[0].vehicle_id, status: 'aborted' });
 
         res.json({ tripId, status: 'aborted' });
     } catch (err) {

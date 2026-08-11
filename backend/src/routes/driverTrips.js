@@ -4,7 +4,7 @@ import { generateTripSummary } from '../services/tripSummaryService.js';
 import { runMlPredict } from './trips.js';
 import { handleTelemetryMessage } from '../services/telemetryService.js';
 import { getSpeedLimit } from '../services/speedLimitLookup.js';
-import { fleetControlNamespace, driverNamespace } from '../server.js';
+import { io, fleetControlNamespace, driverNamespace } from '../server.js';
 
 export const driverTripsRouter = express.Router();
 
@@ -90,6 +90,10 @@ driverTripsRouter.get('/trips/current', async (req, res) => {
                      WHERE trip_id = $1 AND status = 'pending'`,
                     [trip.trip_id]
                 );
+                // Xe co the da dang reposition (tu lai toi diem don) luc
+                // pending -> da tung ban vehicle:position, dashboard dang
+                // hien "online". Bao ngay ve offline, khong doi refetch 30s.
+                io.emit('trip:completed', { tripId: trip.trip_id, vehicleId: trip.vehicle_id, status: 'aborted' });
                 console.log(
                     `[GET /driver/trips/current] Trip #${trip.trip_id} pending qua ` +
                     `${PENDING_TRIP_TIMEOUT_MINUTES} phut khong co vehicle_ready_at - ` +
@@ -107,6 +111,10 @@ driverTripsRouter.get('/trips/current', async (req, res) => {
              WHERE trip_id = $1 AND status = 'pending'`,
                     [trip.trip_id]
                 );
+                // Xe da toi noi (vehicle_ready_at) tuc chac chan da chay
+                // reposition that -> dang "online" tren dashboard. Bao
+                // ngay ve offline.
+                io.emit('trip:completed', { tripId: trip.trip_id, vehicleId: trip.vehicle_id, status: 'aborted' });
                 console.log(
                     `[GET /driver/trips/current] Trip #${trip.trip_id} - xe da toi ` +
                     `nhung driver khong nhan qua ${PICKUP_WAIT_TIMEOUT_MINUTES} phut - tu abort.`
@@ -327,7 +335,16 @@ driverTripsRouter.post('/trips/:id/end', async (req, res) => {
         if (result.rows.length === 0) {
             return res.status(404).json({ error: `Chuyến #${tripId} không tồn tại, không thuộc về bạn, hoặc đã kết thúc` });
         }
-        fleetControlNamespace.emit('vehicle:returned', { vehicleId: result.rows[0].vehicle_id, tripId });
+        const vehicleId = result.rows[0].vehicle_id;
+
+        // Bao fleet-control (Python) biet xe da tra ve - giu nguyen, khac
+        // muc dich voi dong ben duoi.
+        fleetControlNamespace.emit('vehicle:returned', { vehicleId, tripId });
+
+        // Bao ngay admin dashboard (namespace mac dinh, FleetMap.jsx dang
+        // nghe) - dung 1 ten su kien voi trips.js (/:id/end, /:id/abort)
+        // de FE chi can 1 listener duy nhat cho ca patrol lan manual.
+        io.emit('trip:completed', { tripId, vehicleId, status: 'completed' });
 
         let summary = null;
         try { summary = await generateTripSummary(tripId); }
@@ -453,6 +470,9 @@ export async function handleVehicleFailed({ vehicleId, reason }) {
         );
         if (result.rows.length === 0) return;
         const { trip_id, driver_id } = result.rows[0];
+        // Loi giua luc dang reposition = xe chac chan dang "online" tren
+        // dashboard (dang tu lai that). Bao ngay ve offline.
+        io.emit('trip:completed', { tripId: trip_id, vehicleId, status: 'aborted' });
         driverNamespace.to(`driver:${driver_id}`).emit('vehicle:failed', { vehicleId, tripId: trip_id, reason });
     } catch (err) {
         console.error('[handleVehicleFailed] Error:', err.message);

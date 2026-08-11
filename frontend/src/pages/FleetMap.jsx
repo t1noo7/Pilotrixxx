@@ -27,7 +27,9 @@ const STALE_THRESHOLD_MS = 45_000;
 
 function isVehicleStale(vehicle, now) {
   if (vehicle.status !== "online" || !vehicle.last_telemetry_at) return false;
-  return now - new Date(vehicle.last_telemetry_at).getTime() > STALE_THRESHOLD_MS;
+  return (
+    now - new Date(vehicle.last_telemetry_at).getTime() > STALE_THRESHOLD_MS
+  );
 }
 
 function riskGlowColor(vehicle, stale) {
@@ -42,6 +44,8 @@ function riskGlowColor(vehicle, stale) {
 
 // Mỗi xe được gán 1 "loại xe" cố định theo vehicle_id (chỉ để tạo sự đa
 // dạng hình ảnh trên map - không liên quan nghiệp vụ) - luân phiên qua 4 mẫu.
+// Mỗi xe được gán 1 "loại xe" cố định theo vehicle_id (chỉ để tạo sự đa
+// dạng hình ảnh trên map - không liên quan nghiệp vụ) - luân phiên qua 4 mẫu.
 const VEHICLE_TYPES = [
   "sedan",
   "truck",
@@ -51,8 +55,16 @@ const VEHICLE_TYPES = [
   "congnong",
   "duck",
 ];
-function vehicleTypeFor(vehicleId) {
-  return VEHICLE_TYPES[(vehicleId - 1) % VEHICLE_TYPES.length] || "sedan";
+function vehicleTypeFor(vehicle) {
+  // Ưu tiên vehicle_type thật từ DB (cột đã được backend trả về ở
+  // /api/dashboard/fleet-status). Chỉ fallback về modulo id khi thiếu
+  // cột (dữ liệu cũ) hoặc giá trị không khớp SVG nào đã vẽ.
+  if (vehicle.vehicle_type && VEHICLE_SVG_BUILDERS[vehicle.vehicle_type]) {
+    return vehicle.vehicle_type;
+  }
+  return (
+    VEHICLE_TYPES[(vehicle.vehicle_id - 1) % VEHICLE_TYPES.length] || "sedan"
+  );
 }
 
 // --- 4 mẫu xe, mỗi mẫu có màu sơn + hình dáng riêng, kính/đèn/bánh vẽ tay ---
@@ -308,6 +320,68 @@ function duckSvg() {
   };
 }
 
+function tankSvg() {
+  return {
+    viewBox: "0 0 100 170",
+    body: `
+            <rect x="2" y="8" width="20" height="154" rx="9" fill="#1c1f10" stroke="#0b1220" stroke-width="2.2" />
+            <circle cx="12" cy="20" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+            <circle cx="12" cy="42" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+            <circle cx="12" cy="64" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+            <circle cx="12" cy="86" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+            <circle cx="12" cy="108" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+            <circle cx="12" cy="130" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+            <circle cx="12" cy="150" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+            <path d="M3,28 L0,31 L3,34 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+            <path d="M3,50 L0,53 L3,56 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+            <path d="M3,72 L0,75 L3,78 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+            <path d="M3,94 L0,97 L3,100 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+            <path d="M3,116 L0,119 L3,122 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+            <path d="M3,137 L0,140 L3,143 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+            <rect x="78" y="8" width="20" height="154" rx="9" fill="#1c1f10" stroke="#0b1220" stroke-width="2.2" />
+            <circle cx="88" cy="20" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+            <circle cx="88" cy="42" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+            <circle cx="88" cy="64" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+            <circle cx="88" cy="86" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+            <circle cx="88" cy="108" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+            <circle cx="88" cy="130" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+            <circle cx="88" cy="150" r="7.5" fill="#3a4020" stroke="#0b1220" stroke-width="1.2" />
+            <path d="M97,28 L100,31 L97,34 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+            <path d="M97,50 L100,53 L97,56 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+            <path d="M97,72 L100,75 L97,78 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+            <path d="M97,94 L100,97 L97,100 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+            <path d="M97,116 L100,119 L97,122 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+            <path d="M97,137 L100,140 L97,143 Z" fill="#1c1f10" stroke="#0b1220" stroke-width="0.6" />
+            <rect x="24" y="20" width="52" height="140" rx="10" fill="#5a6b2f" stroke="#0b1220" stroke-width="2.4" />
+            <path d="M28 22 L72 22 L68 40 L32 40 Z" fill="#4b5320" stroke="#0b1220" stroke-width="1.2" />
+            <rect x="26" y="134" width="48" height="24" rx="5" fill="#3d451f" stroke="#0b1220" stroke-width="1.8" />
+            <line x1="33" y1="140" x2="37" y2="152" stroke="#2a2f16" stroke-width="2" />
+            <line x1="42" y1="140" x2="46" y2="152" stroke="#2a2f16" stroke-width="2" />
+            <line x1="54" y1="140" x2="58" y2="152" stroke="#2a2f16" stroke-width="2" />
+            <line x1="63" y1="140" x2="67" y2="152" stroke="#2a2f16" stroke-width="2" />
+            <circle cx="50" cy="78" r="27" fill="#4b5320" stroke="#0b1220" stroke-width="2.2" />
+            <circle cx="50" cy="78" r="22" fill="#5a6b2f" stroke="#3d451f" stroke-width="1.4" />
+            <rect x="41" y="52" width="18" height="16" rx="3" fill="#3d451f" stroke="#0b1220" stroke-width="1.6" />
+            <rect x="44" y="0" width="12" height="56" rx="2" fill="#3d451f" stroke="#0b1220" stroke-width="1.8" />
+            <rect x="42" y="0" width="16" height="9" rx="1.5" fill="#2a2f16" stroke="#0b1220" stroke-width="1.4" />
+            <rect x="44" y="2" width="3" height="5" fill="#0b1220" />
+            <rect x="53" y="2" width="3" height="5" fill="#0b1220" />
+            <circle cx="62" cy="70" r="6" fill="#2a2f16" stroke="#0b1220" stroke-width="1.2" />
+            <circle cx="37" cy="88" r="5" fill="#2a2f16" stroke="#0b1220" stroke-width="1.2" />
+            <rect x="47" y="60" width="6" height="4" rx="1" fill="#8fd0f4" stroke="#5aa8d6" stroke-width="0.5" />
+            <rect x="58" y="66" width="5" height="4" rx="1" fill="#8fd0f4" stroke="#5aa8d6" stroke-width="0.5" />
+            <line x1="70" y1="60" x2="78" y2="26" stroke="#2a2f16" stroke-width="1.4" />
+            <circle cx="78" cy="24" r="1.8" fill="#2a2f16" />
+            <circle cx="50" cy="96" r="8" fill="#f7f7f7" stroke="#0b1220" stroke-width="1.2" />
+            <path d="M50 90 L52.5 95 L58 95.5 L54 99 L55.5 104.5 L50 101.5 L44.5 104.5 L46 99 L42 95.5 L47.5 95 Z" fill="#c9a24b" />
+            <rect x="26" y="118" width="14" height="10" rx="2" fill="#3d451f" stroke="#0b1220" stroke-width="1.2" />
+            <rect x="60" y="118" width="14" height="10" rx="2" fill="#3d451f" stroke="#0b1220" stroke-width="1.2" />
+            <rect x="30" y="158" width="7" height="5" rx="1.5" fill="#2a2f16" stroke="#0b1220" stroke-width="1" />
+            <rect x="63" y="158" width="7" height="5" rx="1.5" fill="#2a2f16" stroke="#0b1220" stroke-width="1" />
+        `,
+  };
+}
+
 const VEHICLE_SVG_BUILDERS = {
   sedan: sedanSvg,
   truck: truckSvg,
@@ -316,6 +390,7 @@ const VEHICLE_SVG_BUILDERS = {
   bus: busSvg,
   congnong: congnongSvg,
   duck: duckSvg,
+  tank: tankSvg,
 };
 
 // Kích thước hiển thị trên map cho từng loại (giữ đúng tỉ lệ viewBox riêng)
@@ -327,6 +402,7 @@ const VEHICLE_DISPLAY_SIZE = {
   bus: [22, 46],
   congnong: [26, 44],
   duck: [26, 36],
+  tank: [25, 42],
 };
 
 // divIcon: chọn đúng mẫu xe theo `vehicleType`, xoay theo `heading` thật,
@@ -392,9 +468,15 @@ export default function FleetMap() {
     return () => clearInterval(interval);
   }, []);
 
-  // 1. Load trạng thái ban đầu qua REST
-  useEffect(() => {
-    apiClient
+  // 1. Load + đồng bộ định kỳ trạng thái từ REST (DB là nguồn sự thật).
+  //    Không chỉ load 1 lần: Socket.IO (vehicle:position) chỉ CỘNG DỒN
+  //    status "online", chưa có sự kiện nào báo xe quay lại "offline" khi
+  //    trip completed/aborted -> xe xong chuyến bị kẹt "online" mãi, sau
+  //    45s không telemetry thì hiện nhầm "mất tín hiệu" dù đã về bãi từ
+  //    lâu. Refetch định kỳ là lưới an toàn để tự sửa lại state lệch,
+  //    KHÔNG thay thế socket (vẫn ưu tiên realtime cho vị trí/heading).
+  function fetchFleetStatus() {
+    return apiClient
       .get("/api/dashboard/fleet-status")
       .then((res) => {
         const byId = {};
@@ -405,8 +487,13 @@ export default function FleetMap() {
         setError(
           err.response?.data?.error || "Không tải được trạng thái đội xe",
         ),
-      )
-      .finally(() => setLoading(false));
+      );
+  }
+
+  useEffect(() => {
+    fetchFleetStatus().finally(() => setLoading(false));
+    const interval = setInterval(fetchFleetStatus, 30_000);
+    return () => clearInterval(interval);
   }, []);
 
   // 2. Lắng nghe vị trí realtime qua Socket.IO, merge vào state hiện có
@@ -430,8 +517,29 @@ export default function FleetMap() {
       });
     }
 
+    // Trip completed/aborted -> xe về offline ngay, không chờ refetch
+    // định kỳ hay hết ngưỡng stale mới cập nhật đúng.
+    function handleTripCompleted(payload) {
+      setVehicles((prev) => {
+        const existing = prev[payload.vehicleId];
+        if (!existing) return prev;
+        return {
+          ...prev,
+          [payload.vehicleId]: {
+            ...existing,
+            status: "offline",
+            trip_id: null,
+          },
+        };
+      });
+    }
+
     socket.on("vehicle:position", handlePosition);
-    return () => socket.off("vehicle:position", handlePosition);
+    socket.on("trip:completed", handleTripCompleted);
+    return () => {
+      socket.off("vehicle:position", handlePosition);
+      socket.off("trip:completed", handleTripCompleted);
+    };
   }, []);
 
   const vehicleList = useMemo(() => Object.values(vehicles), [vehicles]);
@@ -439,7 +547,9 @@ export default function FleetMap() {
   const staleVehicleIds = useMemo(
     () =>
       new Set(
-        vehicleList.filter((v) => isVehicleStale(v, now)).map((v) => v.vehicle_id),
+        vehicleList
+          .filter((v) => isVehicleStale(v, now))
+          .map((v) => v.vehicle_id),
       ),
     [vehicleList, now],
   );
@@ -463,12 +573,66 @@ export default function FleetMap() {
           {vehicleList.filter((v) => v.status === "online").length} /{" "}
           {vehicleList.length} xe đang chạy
           {staleVehicleIds.size > 0 && (
-            <span style={{ color: GLOW_BY_STATE.stale, fontWeight: 600, marginLeft: 8 }}>
+            <span
+              style={{
+                color: GLOW_BY_STATE.stale,
+                fontWeight: 600,
+                marginLeft: 8,
+              }}
+            >
               ⚠ {staleVehicleIds.size} xe mất tín hiệu
             </span>
           )}
         </p>
       </header>
+
+      <div
+        className="fleet-legend"
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "12px 20px",
+          fontSize: 12,
+          color: "var(--text-secondary)",
+          marginBottom: 16,
+        }}
+      >
+        {[
+          {
+            color: GLOW_BY_STATE.offline,
+            label: "Không chạy chuyến (offline)",
+          },
+          {
+            color: GLOW_BY_STATE.online_unknown,
+            label: "Đang chạy, chưa có risk gần nhất",
+          },
+          { color: GLOW_BY_STATE.safe, label: "Risk: an toàn" },
+          { color: GLOW_BY_STATE.medium, label: "Risk: trung bình" },
+          { color: GLOW_BY_STATE.dangerous, label: "Risk: nguy hiểm" },
+          {
+            color: GLOW_BY_STATE.stale,
+            label:
+              "Mất tín hiệu (>45s không có dữ liệu mới trong lúc đang chạy)",
+          },
+        ].map((item) => (
+          <span
+            key={item.label}
+            style={{ display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <span
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: "50%",
+                background: item.color,
+                boxShadow: `0 0 4px ${item.color}`,
+                flexShrink: 0,
+              }}
+            />
+            {item.label}
+          </span>
+        ))}
+      </div>
 
       {error && (
         <div
@@ -509,7 +673,7 @@ export default function FleetMap() {
                 return null;
               const stale = isVehicleStale(v, now);
               const glowColor = riskGlowColor(v, stale);
-              const vehicleType = vehicleTypeFor(v.vehicle_id);
+              const vehicleType = vehicleTypeFor(v);
               return (
                 <Marker
                   key={v.vehicle_id}
@@ -528,14 +692,21 @@ export default function FleetMap() {
                       <strong>{v.license_plate}</strong> — {v.model}
                       <br />
                       {stale ? (
-                        <span style={{ color: GLOW_BY_STATE.stale, fontWeight: 600 }}>
+                        <span
+                          style={{
+                            color: GLOW_BY_STATE.stale,
+                            fontWeight: 600,
+                          }}
+                        >
                           ⚠ Mất tín hiệu
                           {v.last_telemetry_at && (
                             <>
                               <br />
                               <span style={{ fontWeight: 400 }}>
                                 Cập nhật lần cuối:{" "}
-                                {new Date(v.last_telemetry_at).toLocaleTimeString("vi-VN")}
+                                {new Date(
+                                  v.last_telemetry_at,
+                                ).toLocaleTimeString("vi-VN")}
                               </span>
                             </>
                           )}
