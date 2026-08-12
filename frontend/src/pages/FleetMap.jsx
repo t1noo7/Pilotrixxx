@@ -408,25 +408,152 @@ const VEHICLE_DISPLAY_SIZE = {
 // divIcon: chọn đúng mẫu xe theo `vehicleType`, xoay theo `heading` thật,
 // quầng sáng (glow) đổi màu theo risk-level - màu sơn xe thì giữ cố định
 // theo loại xe, không đổi theo risk nữa.
-function buildIcon(vehicleType, glowColor, pulsing, heading = 0) {
+// online (pulsing=true): glow màu nhấp nháy nhẹ qua CSS animation (rẻ,
+//   chỉ áp cho vài marker trên bản đồ, browser tự chạy trên GPU).
+// offline: BỎ HẲN glow màu (dễ bị tưởng nhầm là shadow đổ bóng của icon,
+//   đúng phản hồi thực tế) - thay bằng xám hoá toàn thân xe (grayscale)
+//   + giảm opacity + 1 khối tròn xám đậm làm nền phía sau, tạo cảm giác
+//   "dày" rõ ràng, tương phản mạnh với xe online có màu.
+// divIcon: chọn đúng mẫu xe theo `vehicleType`, quầng sáng (glow) đổi màu
+// theo risk-level - màu sơn xe thì giữ cố định theo loại xe, không đổi
+// theo risk nữa.
+// QUAN TRỌNG: icon KHÔNG còn nhúng heading/rotate trực tiếp vào HTML nữa
+// (khác bản cũ) - heading đổi mỗi lần có telemetry mới (~5s/lần), nếu
+// nhúng vào icon thì mỗi lần đổi heading Leaflet phải setIcon() (xoá +
+// tạo lại toàn bộ DOM node) -> @keyframes vehicle-glow-pulse bị reset về
+// 0% liên tục, chưa kịp chạy hết 1 vòng (2.4s) đã bị thay icon mới, nhìn
+// như không hề nhấp nháy. Heading giờ xử lý bằng cách xoay 1 div con
+// (class "vehicle-rotate-wrap") qua DOM trực tiếp (xem VehicleMarker bên
+// dưới) - icon chỉ đổi khi vehicleType/glowColor/isOffline/pulsing đổi
+// (hiếm hơn nhiều), animation không còn bị ngắt giữa chừng.
+// online (pulsing=true): glow màu nhấp nháy nhẹ qua CSS animation (rẻ,
+//   chỉ áp cho vài marker trên bản đồ, browser tự chạy trên GPU).
+// offline: BỎ HẲN glow màu (dễ bị tưởng nhầm là shadow đổ bóng của icon,
+//   đúng phản hồi thực tế) - thay bằng xám hoá toàn thân xe (grayscale)
+//   + giảm opacity + 1 khối tròn xám đậm làm nền phía sau, tạo cảm giác
+//   "dày" rõ ràng, tương phản mạnh với xe online có màu.
+function buildIcon(vehicleType, glowColor, isOffline, pulsing) {
   const { viewBox, body } = (VEHICLE_SVG_BUILDERS[vehicleType] || sedanSvg)();
   const [w, h] = VEHICLE_DISPLAY_SIZE[vehicleType] || [26, 39];
-  const glow = pulsing
-    ? `filter: drop-shadow(0 1px 3px rgba(0,0,0,0.5)) drop-shadow(0 0 6px ${glowColor}) drop-shadow(0 0 6px ${glowColor}aa);`
-    : `filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4)) drop-shadow(0 0 3px ${glowColor}88);`;
+  const rotateWrapOpen = `<div class="vehicle-rotate-wrap" style="width: 100%; height: 100%; transform: rotate(0deg); transition: transform 0.4s linear;">`;
+
+  if (isOffline) {
+    // offline that - xam dam, khong dung glow mau nua tranh nham voi shadow.
+    return L.divIcon({
+      className: "",
+      html: `
+            <div style="width: ${w}px; height: ${h}px; position: relative;">
+                <div style="position: absolute; inset: -6px; border-radius: 999px; background: ${GLOW_BY_STATE.offline}55; border: 2px solid ${GLOW_BY_STATE.offline}; box-sizing: border-box;"></div>
+                ${rotateWrapOpen}
+                    <svg width="${w}" height="${h}" viewBox="${viewBox}" xmlns="http://www.w3.org/2000/svg" style="position: relative; filter: grayscale(0.9) drop-shadow(0 1px 2px rgba(0,0,0,0.4)); opacity: 0.65;">
+                        ${body}
+                    </svg>
+                </div>
+            </div>`,
+      iconSize: [w, h],
+      iconAnchor: [w / 2, h / 2],
+      popupAnchor: [0, -(h / 2) - 2],
+    });
+  }
+
+  // online: pulsing=true (binh thuong) -> glow mau nhap nhay nhe.
+  // pulsing=false (stale - mat tin hieu nhung DB van bao dang chay) -> giu
+  // mau canh bao (cam) nhung KHONG animate, de phan biet voi "dang chay binh thuong".
+  const style = pulsing
+    ? `--glow-c: ${glowColor}; --glow-c-a: ${glowColor}aa; animation: vehicle-glow-pulse 2.4s ease-in-out infinite;`
+    : `filter: drop-shadow(0 1px 3px rgba(0,0,0,0.5)) drop-shadow(0 0 6px ${glowColor}) drop-shadow(0 0 6px ${glowColor}aa);`;
 
   return L.divIcon({
     className: "",
     html: `
-            <div style="width: ${w}px; height: ${h}px; transform: rotate(${heading}deg); transition: transform 0.4s linear; ${glow}">
-                <svg width="${w}" height="${h}" viewBox="${viewBox}" xmlns="http://www.w3.org/2000/svg">
-                    ${body}
-                </svg>
+            <div style="width: ${w}px; height: ${h}px; ${style}">
+                ${rotateWrapOpen}
+                    <svg width="${w}" height="${h}" viewBox="${viewBox}" xmlns="http://www.w3.org/2000/svg">
+                        ${body}
+                    </svg>
+                </div>
             </div>`,
     iconSize: [w, h],
     iconAnchor: [w / 2, h / 2],
     popupAnchor: [0, -(h / 2) - 2],
   });
+}
+
+// Component con: 1 marker xe. Icon được useMemo theo (vehicleType,
+// glowColor, isOffline, pulsing) - KHÔNG phụ thuộc heading, nên khi xe
+// chỉ đổi vị trí/heading (mỗi ~5s, không đổi trạng thái/màu), icon giữ
+// nguyên object reference -> Leaflet KHÔNG setIcon() lại -> DOM node cũ
+// (đang chạy animation nhấp nháy) được giữ nguyên, không bị reset.
+// Heading áp trực tiếp lên DOM qua ref (marker.getElement()) mỗi khi đổi,
+// tách biệt hoàn toàn khỏi vòng đời icon.
+function VehicleMarker({
+  vehicle: v,
+  stale,
+  glowColor,
+  vehicleType,
+  isOffline,
+  pulsing,
+  heading,
+}) {
+  const markerRef = useRef(null);
+
+  const icon = useMemo(
+    () => buildIcon(vehicleType, glowColor, isOffline, pulsing),
+    [vehicleType, glowColor, isOffline, pulsing],
+  );
+
+  useEffect(() => {
+    const marker = markerRef.current;
+    const el = marker && marker.getElement ? marker.getElement() : null;
+    const rotWrap = el ? el.querySelector(".vehicle-rotate-wrap") : null;
+    if (rotWrap) rotWrap.style.transform = `rotate(${heading}deg)`;
+  }, [heading]);
+
+  return (
+    <Marker
+      ref={markerRef}
+      position={[v.last_latitude, v.last_longitude]}
+      icon={icon}
+    >
+      <Popup>
+        <div style={{ fontFamily: "var(--font-ui)", minWidth: 160 }}>
+          <strong>{v.license_plate}</strong> — {v.model}
+          <br />
+          {stale ? (
+            <span style={{ color: GLOW_BY_STATE.stale, fontWeight: 600 }}>
+              ⚠ Mất tín hiệu
+              {v.last_telemetry_at && (
+                <>
+                  <br />
+                  <span style={{ fontWeight: 400 }}>
+                    Cập nhật lần cuối:{" "}
+                    {new Date(v.last_telemetry_at).toLocaleTimeString("vi-VN")}
+                  </span>
+                </>
+              )}
+            </span>
+          ) : v.status === "online" ? (
+            <>
+              Tài xế: {v.driver_name || "—"}
+              <br />
+              Tốc độ: {v.last_speed ?? "—"} km/h
+            </>
+          ) : (
+            <span style={{ color: "#888" }}>Đang không chạy chuyến nào</span>
+          )}
+          {v.last_risk_level && (
+            <>
+              <br />
+              Risk gần nhất:{" "}
+              <span className={`risk-badge risk-badge--${v.last_risk_level}`}>
+                {v.last_risk_level}
+              </span>
+            </>
+          )}
+        </div>
+      </Popup>
+    </Marker>
+  );
 }
 
 // Component con: tự fit bounds khi danh sách vị trí xe thay đổi lần đầu
@@ -675,67 +802,16 @@ export default function FleetMap() {
               const glowColor = riskGlowColor(v, stale);
               const vehicleType = vehicleTypeFor(v);
               return (
-                <Marker
+                <VehicleMarker
                   key={v.vehicle_id}
-                  position={[v.last_latitude, v.last_longitude]}
-                  icon={buildIcon(
-                    vehicleType,
-                    glowColor,
-                    v.status === "online" && !stale,
-                    v.heading || 0,
-                  )}
-                >
-                  <Popup>
-                    <div
-                      style={{ fontFamily: "var(--font-ui)", minWidth: 160 }}
-                    >
-                      <strong>{v.license_plate}</strong> — {v.model}
-                      <br />
-                      {stale ? (
-                        <span
-                          style={{
-                            color: GLOW_BY_STATE.stale,
-                            fontWeight: 600,
-                          }}
-                        >
-                          ⚠ Mất tín hiệu
-                          {v.last_telemetry_at && (
-                            <>
-                              <br />
-                              <span style={{ fontWeight: 400 }}>
-                                Cập nhật lần cuối:{" "}
-                                {new Date(
-                                  v.last_telemetry_at,
-                                ).toLocaleTimeString("vi-VN")}
-                              </span>
-                            </>
-                          )}
-                        </span>
-                      ) : v.status === "online" ? (
-                        <>
-                          Tài xế: {v.driver_name || "—"}
-                          <br />
-                          Tốc độ: {v.last_speed ?? "—"} km/h
-                        </>
-                      ) : (
-                        <span style={{ color: "#888" }}>
-                          Đang không chạy chuyến nào
-                        </span>
-                      )}
-                      {v.last_risk_level && (
-                        <>
-                          <br />
-                          Risk gần nhất:{" "}
-                          <span
-                            className={`risk-badge risk-badge--${v.last_risk_level}`}
-                          >
-                            {v.last_risk_level}
-                          </span>
-                        </>
-                      )}
-                    </div>
-                  </Popup>
-                </Marker>
+                  vehicle={v}
+                  stale={stale}
+                  glowColor={glowColor}
+                  vehicleType={vehicleType}
+                  isOffline={v.status !== "online"}
+                  pulsing={v.status === "online" && !stale}
+                  heading={v.heading || 0}
+                />
               );
             })}
           </MapContainer>
@@ -747,6 +823,10 @@ export default function FleetMap() {
                     0% { box-shadow: 0 0 0 0 rgba(61,214,196,0.5); }
                     70% { box-shadow: 0 0 0 8px rgba(61,214,196,0); }
                     100% { box-shadow: 0 0 0 0 rgba(61,214,196,0); }
+                }
+                @keyframes vehicle-glow-pulse {
+                    0%, 100% { filter: drop-shadow(0 1px 3px rgba(0,0,0,0.5)) drop-shadow(0 0 4px var(--glow-c)) drop-shadow(0 0 4px var(--glow-c-a)); }
+                    50% { filter: drop-shadow(0 1px 3px rgba(0,0,0,0.5)) drop-shadow(0 0 9px var(--glow-c)) drop-shadow(0 0 9px var(--glow-c-a)); }
                 }
             `}</style>
     </div>

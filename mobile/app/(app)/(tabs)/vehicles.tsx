@@ -238,13 +238,18 @@ export default function VehiclesScreen() {
 
     setStarting(true);
     try {
-      // Uu tien vi tri cuoi cung CUA CHINH XE lam diem don, khong dung GPS
-      // dien thoai nua - de dispatch noi tiep lien mach du co Ctrl+C/restart
-      // giua chung. GPS chi con la fallback cho truong hop xe CHUA TUNG co
-      // telemetry (last_latitude/longitude con NULL).
-      const pickupLatitude = vehicle.last_latitude ?? driverLocation.latitude;
-      const pickupLongitude =
-        vehicle.last_longitude ?? driverLocation.longitude;
+      // pickupLatitude/pickupLongitude LUON la vi tri DRIVER (noi can duoc
+      // don) - khong lien quan gi vi tri xe. Nham lay vi tri xe lam diem
+      // don tung gay bug "xe teleport": target gan nhu trung voi vi tri
+      // xuat phat cua chinh xe -> OSRM tra ETA ~0s, backend/run_fleet.py
+      // hieu la xe "da toi noi" gan nhu ngay lap tuc. Viec dispatch noi
+      // tiep lien mach (xe di tu diem ket thuc chuyen truoc, khong ve
+      // depot) da duoc dam bao rieng o phia backend/run_fleet.py
+      // (get_vehicle_position() doc vehicles.last_latitude/longitude lam
+      // DIEM XUAT PHAT cho route reposition) - khong can va khong duoc
+      // lam lai o day.
+      const pickupLatitude = driverLocation.latitude;
+      const pickupLongitude = driverLocation.longitude;
 
       const { tripId } = await reserveTrip(
         vehicle.vehicle_id,
