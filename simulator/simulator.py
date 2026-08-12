@@ -93,10 +93,48 @@ def start_trip(device_ident: str, scenario: str) -> dict:
 
 def end_trip(trip_id: int):
     """Goi POST /api/trips/{tripId}/end. Tu retry neu Render tra loi
-    5xx/mat ket noi thoang qua."""
+    5xx/mat ket noi thoang qua.
+
+    XU LY DAC BIET 404 "khong ton tai hoac da ket thuc" luc retry sau
+    timeout - day KHONG phai bug, la he qua tat yeu cua "at-least-once
+    delivery" (bai toan kinh dien trong he thong phan tan): khi client
+    timeout, client KHONG THE biet chac request truoc do da toi server
+    hay chua - co the (a) request chua toi server, (b) server xu ly xong
+    NHUNG response bi mat/cham tren duong ve (hay gap voi Render free
+    tier luc cold-start), hoac (c) server con dang xu ly do. Khong the
+    phan biet 3 truong hop nay CHI dua vao viec "khong nhan duoc response".
+
+    Tuy nhien co the LOAI TRU de nghieng ve kha nang (b) bang lap luan
+    dua tren bat bien cua chinh he thong nay (khong doan mo): route
+    /end chi UPDATE trip dang o status='ongoing' (WHERE status='ongoing'),
+    tra ve 404 neu KHONG co dong nao khop dieu kien do. Trong demo nay,
+    CHI DUY NHAT simulator dang chay trip do moi co the goi /end hoac
+    /abort cho trip_id nay (khong co driver that/admin nao khac thao tac
+    song song). Vay 404 luc retry => trip da roi khoi 'ongoing' truoc do
+    => vi khong co tac nhan nao khac co the lam dieu do, chi con 1 loi
+    giai thich hop ly: chinh lan goi dau (bi client-side timeout) DA
+    THUC THI THANH CONG o server. Day la suy luan loai tru dua tren bat
+    bien he thong, khong phai doan mo - nhung van khong the noi "chac
+    chan 100%" vi ve ly thuyet thuan tuy, client khong bao gio xac minh
+    duoc phia server tuyet doi (dung nguyen tac cua at-least-once
+    delivery) - "nhieu kha nang" o day la muc do chac chan CHINH XAC,
+    khong phai thieu tu tin."""
     url = f"{BACKEND_URL}/api/trips/{trip_id}/end"
-    resp = _post_with_retry(url)
-    return resp.json()
+    try:
+        resp = _post_with_retry(url)
+        return resp.json()
+    except requests.exceptions.HTTPError as e:
+        resp = e.response
+        if resp is not None and resp.status_code == 404:
+            print(
+                f"[end_trip] Trip {trip_id}: 404 luc retry sau timeout - trip da "
+                f"roi khoi 'ongoing' truoc thoi diem nay, ma chi lan goi /end dau "
+                f"tien (bi client timeout) co the lam dieu do (khong co tac nhan "
+                f"nao khac trong demo nay). Ket luan: lan goi dau da thanh cong o "
+                f"server, coi trip nay la da end xong, khong retry/abort them."
+            )
+            return {"tripId": trip_id, "alreadyEnded": True}
+        raise
 
 
 def abort_trip(trip_id: int):
@@ -105,10 +143,25 @@ def abort_trip(trip_id: int):
     lan chay sau cua chinh xe do (409 Conflict). Tu retry loi 5xx/mat ket
     noi thoang qua; neu het luot retry van loi thi CHAP NHAN bo cuoc va
     chi print - day la duong cuu vot cuoi cung, khong de no raise tiep lam
-    crash them mot lan nua."""
+    crash them mot lan nua.
+
+    404 "khong ton tai hoac da ket thuc" o day KHONG phai loi that - nghia
+    la trip da o trang thai completed/aborted tu truoc roi (vd tu chinh
+    end_trip() da thanh cong ngam roi client bi timeout, hoac tu 1 lan
+    abort_trip() khac da chay truoc do) - log nhe nhang, khong dung tu
+    "Khong abort duoc" (nghe nhu that bai that su)."""
     try:
         url = f"{BACKEND_URL}/api/trips/{trip_id}/abort"
         _post_with_retry(url)
+    except requests.exceptions.HTTPError as e:
+        resp = e.response
+        if resp is not None and resp.status_code == 404:
+            print(
+                f"[abort_trip] Trip {trip_id}: 404 (da ket thuc/abort tu truoc) - "
+                f"khong can lam gi them, bo qua."
+            )
+        else:
+            print(f"[abort_trip] Khong abort duoc trip {trip_id}: {e}")
     except Exception as e:
         print(f"[abort_trip] Khong abort duoc trip {trip_id}: {e}")
 
