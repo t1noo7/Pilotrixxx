@@ -711,6 +711,25 @@ export default function FleetMap() {
             </span>
           )}
         </p>
+        {(() => {
+          const idleCount = vehicleList.filter(
+            (v) => v.status !== "online",
+          ).length;
+          if (idleCount === 0) return null;
+          return (
+            <p
+              style={{
+                color: "var(--text-secondary)",
+                fontSize: 12,
+                marginTop: 2,
+                fontStyle: "italic",
+              }}
+            >
+              💺 {idleCount} xe vừa xong chặng, đang ngồi chơi xơi nước chờ cuốc
+              mới...
+            </p>
+          );
+        })()}
       </header>
 
       <div
