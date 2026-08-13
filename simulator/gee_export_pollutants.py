@@ -13,7 +13,14 @@ Chạy:
 
 import argparse
 import json
+import os
 import ee
+
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_JS_OUT = os.path.normpath(
+    os.path.join(SCRIPT_DIR, "..", "frontend", "src", "pages", "satelliteLayers.js")
+)
 
 
 # Fallback bbox CHỈ dùng khi không tìm được ranh giới hành chính thật
@@ -35,6 +42,7 @@ POLLUTANTS = {
         "vis_min": 0,
         "vis_max": 0.0002,
         "unit": "mol/m^2",
+        "label": "NO₂ (khí thải giao thông/công nghiệp)",
     },
     "CO": {
         "collection": "COPERNICUS/S5P/OFFL/L3_CO",
@@ -42,6 +50,7 @@ POLLUTANTS = {
         "vis_min": 0,
         "vis_max": 0.05,
         "unit": "mol/m^2",
+        "label": "CO (khí thải đốt cháy không hoàn toàn)",
     },
     "SO2": {
         "collection": "COPERNICUS/S5P/OFFL/L3_SO2",
@@ -49,6 +58,7 @@ POLLUTANTS = {
         "vis_min": -0.001,
         "vis_max": 0.005,
         "unit": "mol/m^2",
+        "label": "SO₂ (khí thải công nghiệp/nhiên liệu hoá thạch)",
     },
 }
 
@@ -149,7 +159,7 @@ def export_pollutant(
     end_date: str,
     boundary: ee.Geometry,
     region: ee.Geometry,
-) -> str:
+) -> dict:
     collection = (
         ee.ImageCollection(cfg["collection"])
         .select(cfg["band"])
@@ -181,7 +191,62 @@ def export_pollutant(
         }
     )
     print(f"[{name}] Ảnh PNG: {url}")
-    return url
+    return {"image_url": url, "vis_min": vis_min, "vis_max": vis_max}
+
+
+def write_satellite_layers_js(bounds_leaflet, layers_data: dict, js_out_path: str):
+    """
+    Ghi THẲNG ra file satelliteLayers.js đúng định dạng frontend đang dùng -
+    thay thế bước copy tay URL+bounds từ JSON, vốn là nguồn gốc mấy lần lỗi
+    'không hiện gì' do quên đồng bộ 1 trong 2 giá trị.
+    """
+    bounds_js = f"[[{bounds_leaflet[0][0]}, {bounds_leaflet[0][1]}], [{bounds_leaflet[1][0]}, {bounds_leaflet[1][1]}]]"
+
+    layer_entries = []
+    for name, cfg in POLLUTANTS.items():
+        d = layers_data[name]
+        layer_entries.append(
+            f"""  {name}: {{
+    label: "{cfg['label']}",
+    unit: "{cfg['unit'].replace('mol/m^2', 'mol/m²')}",
+    visMin: {d['vis_min']!r},
+    visMax: {d['vis_max']!r},
+    imageUrl:
+      "{d['image_url']}",
+    bounds: SHARED_BOUNDS,
+  }}"""
+        )
+
+    layers_js_block = ",\n".join(layer_entries)
+
+    content = f"""// Các lớp phủ chất khí (Sentinel-5P/TROPOMI, qua Google Earth Engine),
+// đã CLIP theo ranh giới hành chính thật của Hà Nội (không phải bbox
+// chữ nhật thô) - GHI TỰ ĐỘNG bởi `gee_export_pollutants.py`, KHÔNG sửa
+// tay file này - chạy lại script để cập nhật ảnh mới.
+
+const SHARED_BOUNDS = {bounds_js};
+
+export const SATELLITE_LAYERS = {{
+{layers_js_block},
+}};
+
+// Phải khớp đúng VIS_PALETTE trong gee_export_pollutants.py
+export const VIS_PALETTE = {json.dumps(VIS_PALETTE)};
+"""
+
+    parent_dir = os.path.dirname(js_out_path)
+    if parent_dir and not os.path.isdir(parent_dir):
+        print(f"\n[LỖI] Không tìm thấy thư mục: {parent_dir}")
+        print(
+            "Kiểm tra lại cấu trúc repo, hoặc truyền tay đường dẫn đúng "
+            "qua --js-out /duong/dan/day/du/satelliteLayers.js"
+        )
+        print(f"(Metadata JSON vẫn đã lưu thành công ở bước trước, không mất dữ liệu.)")
+        return
+
+    with open(js_out_path, "w") as f:
+        f.write(content)
+    print(f"\n[JS] Đã ghi trực tiếp: {js_out_path}")
 
 
 def main():
@@ -190,6 +255,11 @@ def main():
     parser.add_argument("--start", default="2026-06-01")
     parser.add_argument("--end", default="2026-08-01")
     parser.add_argument("--out", default="pollutants_hanoi_meta.json")
+    parser.add_argument(
+        "--js-out",
+        default=DEFAULT_JS_OUT,
+        help="Duong dan file JS se ghi truc tiep (mac dinh: tinh theo vi tri script, khong phu thuoc CWD)",
+    )
     args = parser.parse_args()
 
     ee.Initialize(project=args.project)
@@ -200,12 +270,21 @@ def main():
     result = {"bounds_leaflet": leaflet_bounds, "layers": {}}
 
     for name, cfg in POLLUTANTS.items():
-        url = export_pollutant(name, cfg, args.start, args.end, boundary, region)
-        result["layers"][name] = {"image_url": url, "unit": cfg["unit"]}
+        layer_result = export_pollutant(
+            name, cfg, args.start, args.end, boundary, region
+        )
+        result["layers"][name] = {
+            "image_url": layer_result["image_url"],
+            "unit": cfg["unit"],
+            "vis_min": layer_result["vis_min"],
+            "vis_max": layer_result["vis_max"],
+        }
 
     with open(args.out, "w") as f:
         json.dump(result, f, indent=2)
-    print(f"\nĐã lưu metadata cả 3 lớp vào: {args.out}")
+    print(f"\nĐã lưu metadata cả 3 lớp vào: {args.out} (để tham khảo/debug)")
+
+    write_satellite_layers_js(leaflet_bounds, result["layers"], args.js_out)
 
 
 if __name__ == "__main__":
