@@ -759,7 +759,7 @@ export default function FleetMap() {
                 fontStyle: "italic",
               }}
             >
-              💺 {idleCount} xe vừa xong chặng, đang ngồi chơi xơi nước chờ cuốc
+              {idleCount} xe vừa xong chặng, đang ngồi chơi xơi nước chờ cuốc
               mới...
             </p>
           );
@@ -790,7 +790,7 @@ export default function FleetMap() {
             checked={showNo2Layer}
             onChange={(e) => setShowNo2Layer(e.target.checked)}
           />
-          🛰️ Lớp NO₂ (Sentinel-5P/TROPOMI)
+          Lớp NO₂ (Sentinel-5P/TROPOMI)
         </label>
         {riskEvents.length > 0 && (
           <span>• {riskEvents.length} sự kiện nguy hiểm (7 ngày qua)</span>
@@ -844,6 +844,42 @@ export default function FleetMap() {
           </span>
         ))}
       </div>
+
+      {riskEvents.length > 0 && (
+        <div
+          className="risk-event-legend"
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "12px 20px",
+            fontSize: 12,
+            color: "var(--text-secondary)",
+            marginBottom: 16,
+          }}
+        >
+          <span style={{ color: "var(--text-secondary)", fontWeight: 600 }}>
+            Sự kiện nguy hiểm:
+          </span>
+          {Object.entries(RISK_EVENT_STYLE).map(([type, style]) => (
+            <span
+              key={type}
+              style={{ display: "flex", alignItems: "center", gap: 6 }}
+            >
+              <span
+                style={{
+                  width: 9,
+                  height: 9,
+                  borderRadius: "50%",
+                  background: style.color,
+                  border: "1px solid rgba(0,0,0,0.25)",
+                  flexShrink: 0,
+                }}
+              />
+              {style.label}
+            </span>
+          ))}
+        </div>
+      )}
 
       {error && (
         <div
