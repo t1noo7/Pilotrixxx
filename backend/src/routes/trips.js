@@ -372,3 +372,33 @@ tripsRouter.get('/:id/telemetry', async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+
+/**
+ * GET /api/trips/:id/risk-events
+ * Toạ độ các event nguy hiểm (phanh gấp, cua gắt, lấn làn, vượt tốc...)
+ * theo chuyến đi - join driver_events voi telemetry_raw qua telemetry_id
+ * de lay lat/lng tai thoi diem xay ra event. Dung cho lop "Driving Risk"
+ * tren ban do GIS (FleetMap.jsx), ket hop voi lop "Environmental Risk"
+ * (NO2/AQI overlay).
+ */
+tripsRouter.get('/:id/risk-events', async (req, res) => {
+    const tripId = parseInt(req.params.id, 10);
+    if (Number.isNaN(tripId)) return res.status(400).json({ error: 'tripId không hợp lệ' });
+
+    try {
+        const result = await pool.query(`
+            SELECT
+                de.event_id, de.event_type, de.severity, de.occurred_at,
+                de.metric_value,
+                tr.latitude AS lat, tr.longitude AS lng
+            FROM driver_events de
+            JOIN telemetry_raw tr ON tr.id = de.telemetry_id
+            WHERE de.trip_id = $1
+            ORDER BY de.occurred_at ASC
+        `, [tripId]);
+        res.json({ tripId, count: result.rows.length, events: result.rows });
+    } catch (err) {
+        console.error('[GET /trips/:id/risk-events] Error:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});

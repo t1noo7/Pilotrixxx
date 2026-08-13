@@ -45,6 +45,37 @@ dashboardRouter.get('/fleet-status', async (req, res) => {
 });
 
 /**
+ * GET /api/dashboard/risk-events
+ * Toạ độ các event nguy hiểm (phanh gấp, cua gắt, lấn làn, vượt tốc...)
+ * TỔNG HỢP qua nhiều trip gần đây - dùng cho lớp "Driving Risk" trên
+ * bản đồ GIS (FleetMap.jsx), kết hợp với lớp "Environmental Risk"
+ * (NO2 overlay) để tạo bản đồ rủi ro không gian nhiều lớp.
+ * Query params: days (mặc định 7, tối đa 90), limit (mặc định 500, tối đa 2000)
+ */
+dashboardRouter.get('/risk-events', async (req, res) => {
+    const days = Math.min(parseInt(req.query.days) || 7, 90);
+    const limit = Math.min(parseInt(req.query.limit) || 500, 2000);
+
+    try {
+        const result = await pool.query(`
+            SELECT
+                de.event_id, de.event_type, de.severity, de.occurred_at,
+                de.trip_id,
+                tr.latitude AS lat, tr.longitude AS lng
+            FROM driver_events de
+            JOIN telemetry_raw tr ON tr.id = de.telemetry_id
+            WHERE de.occurred_at >= now() - ($1 || ' days')::interval
+            ORDER BY de.occurred_at DESC
+            LIMIT $2
+        `, [days, limit]);
+        res.json({ days, count: result.rows.length, events: result.rows });
+    } catch (err) {
+        console.error('[GET /dashboard/risk-events] Error:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
  * GET /api/dashboard/stats
  * Thống kê tổng quan (nghiệp vụ)
  */
@@ -83,9 +114,9 @@ dashboardRouter.get('/stats', async (req, res) => {
         ]);
 
         res.json({
-            trips:    tripsRes.rows[0],
-            alerts:   alertsRes.rows[0],
-            risk:     riskRes.rows[0],
+            trips: tripsRes.rows[0],
+            alerts: alertsRes.rows[0],
+            risk: riskRes.rows[0],
             vehicles: vehiclesRes.rows[0],
         });
     } catch (err) {
@@ -146,7 +177,7 @@ riskScoresRouter.get('/', async (req, res) => {
     const values = [];
     let idx = 1;
 
-    if (driverId)  { conditions.push(`t.driver_id = $${idx++}`);  values.push(parseInt(driverId)); }
+    if (driverId) { conditions.push(`t.driver_id = $${idx++}`); values.push(parseInt(driverId)); }
     if (vehicleId) { conditions.push(`t.vehicle_id = $${idx++}`); values.push(parseInt(vehicleId)); }
     values.push(_limit);
 
@@ -191,7 +222,7 @@ riskScoresRouter.post('/compute', async (req, res) => {
 
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const PREDICT_PY = path.resolve(__dirname, '..', '..', '..', 'ml', 'predict.py');
-    const PYTHON     = path.resolve(__dirname, '..', '..', '..', 'venv', 'bin', 'python');
+    const PYTHON = path.resolve(__dirname, '..', '..', '..', 'venv', 'bin', 'python');
 
     try {
         const result = await new Promise((resolve, reject) => {
