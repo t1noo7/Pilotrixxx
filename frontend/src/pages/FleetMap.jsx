@@ -13,7 +13,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { apiClient } from "../api/client.js";
 import { socket } from "../api/socket.js";
-import { NO2_LAYER } from "./no2Layer.js";
+import { SATELLITE_LAYERS, VIS_PALETTE } from "./satelliteLayers.js";
 
 // Màu + nhãn cho lớp "Driving Risk" - marker sự kiện nguy hiểm trên bản đồ.
 // event_type phải khớp đúng giá trị enum trong DB (bảng driver_events).
@@ -604,7 +604,7 @@ export default function FleetMap() {
   const [vehicles, setVehicles] = useState({}); // keyed by vehicle_id
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [showNo2Layer, setShowNo2Layer] = useState(true);
+  const [activePollutant, setActivePollutant] = useState(null); // "NO2" | "CO" | "SO2" | null
   const [riskEvents, setRiskEvents] = useState([]);
 
   // Su kien nguy hiem tong hop 7 ngay gan nhat - du lieu tinh, khong can
@@ -777,25 +777,92 @@ export default function FleetMap() {
           marginBottom: 12,
         }}
       >
+        <span style={{ fontWeight: 600 }}>Lớp vệ tinh:</span>
         <label
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 6,
+            gap: 4,
             cursor: "pointer",
           }}
         >
           <input
-            type="checkbox"
-            checked={showNo2Layer}
-            onChange={(e) => setShowNo2Layer(e.target.checked)}
+            type="radio"
+            name="satellite-layer"
+            checked={activePollutant === null}
+            onChange={() => setActivePollutant(null)}
           />
-          Lớp NO₂ (Sentinel-5P/TROPOMI)
+          Tắt
         </label>
+        {Object.entries(SATELLITE_LAYERS).map(([key, layer]) => (
+          <label
+            key={key}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              cursor: "pointer",
+            }}
+            title={layer.label}
+          >
+            <input
+              type="radio"
+              name="satellite-layer"
+              checked={activePollutant === key}
+              onChange={() => setActivePollutant(key)}
+            />
+            {key}
+          </label>
+        ))}
+        {activePollutant && (
+          <span style={{ fontStyle: "italic" }}>
+            Sentinel-5P/TROPOMI · {SATELLITE_LAYERS[activePollutant].label}
+          </span>
+        )}
         {riskEvents.length > 0 && (
           <span>• {riskEvents.length} sự kiện nguy hiểm (7 ngày qua)</span>
         )}
       </div>
+
+      {activePollutant && (
+        <div
+          className="pollutant-scale-legend"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            fontSize: 12,
+            color: "var(--text-secondary)",
+            marginBottom: 16,
+          }}
+        >
+          <span>
+            {SATELLITE_LAYERS[activePollutant].visMin.toExponential(2)}
+          </span>
+          <div
+            style={{
+              display: "flex",
+              height: 12,
+              borderRadius: 3,
+              overflow: "hidden",
+            }}
+          >
+            {VIS_PALETTE.map((color) => (
+              <span
+                key={color}
+                style={{ width: 24, height: "100%", background: color }}
+              />
+            ))}
+          </div>
+          <span>
+            {SATELLITE_LAYERS[activePollutant].visMax.toExponential(2)}
+          </span>
+          <span style={{ marginLeft: 4 }}>
+            ({SATELLITE_LAYERS[activePollutant].unit}, thang màu theo phân vị
+            2-98% dữ liệu thật)
+          </span>
+        </div>
+      )}
 
       <div
         className="fleet-legend"
@@ -913,10 +980,10 @@ export default function FleetMap() {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               attribution="&copy; OpenStreetMap contributors"
             />
-            {showNo2Layer && (
+            {activePollutant && (
               <ImageOverlay
-                url={NO2_LAYER.imageUrl}
-                bounds={NO2_LAYER.bounds}
+                url={SATELLITE_LAYERS[activePollutant].imageUrl}
+                bounds={SATELLITE_LAYERS[activePollutant].bounds}
                 opacity={0.45}
               />
             )}
