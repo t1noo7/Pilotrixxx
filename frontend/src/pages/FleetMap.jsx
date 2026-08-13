@@ -1,9 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  ImageOverlay,
+  CircleMarker,
+  Tooltip,
+  useMap,
+} from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { apiClient } from "../api/client.js";
 import { socket } from "../api/socket.js";
+import { NO2_LAYER } from "./no2Layer.js";
+
+// Màu + nhãn cho lớp "Driving Risk" - marker sự kiện nguy hiểm trên bản đồ.
+// event_type phải khớp đúng giá trị enum trong DB (bảng driver_events).
+const RISK_EVENT_STYLE = {
+  hard_brake: { color: "#f87171", label: "Phanh gấp" },
+  overspeed: { color: "#fb923c", label: "Vượt tốc độ" },
+  rapid_accel: { color: "#c084fc", label: "Tăng tốc đột ngột" },
+  sharp_turn: { color: "#fbbf24", label: "Cua gắt" },
+};
+const DEFAULT_EVENT_STYLE = { color: "#94a3b8", label: "Sự kiện khác" };
 
 const HANOI_CENTER = [21.0285, 105.8542];
 
@@ -584,6 +604,20 @@ export default function FleetMap() {
   const [vehicles, setVehicles] = useState({}); // keyed by vehicle_id
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [showNo2Layer, setShowNo2Layer] = useState(true);
+  const [riskEvents, setRiskEvents] = useState([]);
+
+  // Su kien nguy hiem tong hop 7 ngay gan nhat - du lieu tinh, khong can
+  // poll realtime nhu vi tri xe, chi fetch 1 lan luc mount la du.
+  useEffect(() => {
+    apiClient
+      .get("/api/dashboard/risk-events?days=7")
+      .then((res) => setRiskEvents(res.data?.events || []))
+      .catch((err) => {
+        // Khong chan UI neu loi - day chi la lop bo sung, khong phai core
+        console.error("[FleetMap] Lỗi tải risk-events:", err.message);
+      });
+  }, []);
 
   // Tu tick moi 5s de ep re-render tinh lai staleness - last_telemetry_at
   // khong tu doi nhung thoi gian troi qua thi 1 xe co the tu "binh thuong"
@@ -733,6 +767,37 @@ export default function FleetMap() {
       </header>
 
       <div
+        className="layer-control"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          fontSize: 13,
+          color: "var(--text-secondary)",
+          marginBottom: 12,
+        }}
+      >
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={showNo2Layer}
+            onChange={(e) => setShowNo2Layer(e.target.checked)}
+          />
+          🛰️ Lớp NO₂ (Sentinel-5P/TROPOMI)
+        </label>
+        {riskEvents.length > 0 && (
+          <span>• {riskEvents.length} sự kiện nguy hiểm (7 ngày qua)</span>
+        )}
+      </div>
+
+      <div
         className="fleet-legend"
         style={{
           display: "flex",
@@ -812,6 +877,35 @@ export default function FleetMap() {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               attribution="&copy; OpenStreetMap contributors"
             />
+            {showNo2Layer && (
+              <ImageOverlay
+                url={NO2_LAYER.imageUrl}
+                bounds={NO2_LAYER.bounds}
+                opacity={0.45}
+              />
+            )}
+            {riskEvents.map((ev) => {
+              const style =
+                RISK_EVENT_STYLE[ev.event_type] || DEFAULT_EVENT_STYLE;
+              return (
+                <CircleMarker
+                  key={ev.event_id}
+                  center={[ev.lat, ev.lng]}
+                  radius={5}
+                  pathOptions={{
+                    color: style.color,
+                    fillColor: style.color,
+                    fillOpacity: 0.75,
+                    weight: 1,
+                  }}
+                >
+                  <Tooltip direction="top">
+                    {style.label} —{" "}
+                    {new Date(ev.occurred_at).toLocaleString("vi-VN")}
+                  </Tooltip>
+                </CircleMarker>
+              );
+            })}
             <FitBoundsOnLoad positions={validPositions} />
 
             {vehicleList.map((v) => {
