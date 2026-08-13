@@ -19,3 +19,4 @@ ml/data/*.csv
 .vscode/
 *.log
 no2_hanoi_meta.json
+pollutants_hanoi_meta.json
