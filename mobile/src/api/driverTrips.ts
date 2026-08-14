@@ -4,6 +4,7 @@ import type {
   CurrentTrip,
   TripHistoryItem,
   RiskScore,
+  TripSummary,
 } from "../types";
 
 export async function getVehicles(): Promise<Vehicle[]> {
@@ -44,7 +45,7 @@ export async function activateTrip(
 export async function endTrip(tripId: string): Promise<{
   tripId: string;
   status: string;
-  summary: unknown;
+  summary: TripSummary | null;
   riskScore: RiskScore | null;
 }> {
   const { data } = await apiClient.post(`/api/driver/trips/${tripId}/end`);
@@ -106,6 +107,25 @@ export async function setRouteMode(
       destLatitude,
       destLongitude,
     },
+  );
+  return data;
+}
+
+export async function cancelTrip(
+  tripId: string,
+): Promise<{ tripId: string; status: string }> {
+  const { data } = await apiClient.post(`/api/driver/trips/${tripId}/cancel`);
+  return data;
+}
+
+// DEV-ONLY: ghi nhan event lan_lan gia lap (nut debug trip/[id].tsx).
+// Backend insert thang vao driver_events, KHONG qua rule-engine (khong
+// co nguong so hoc dai dien cho "lech lan" nhu 4 event con lai).
+export async function simulateLaneDrift(
+  tripId: string,
+): Promise<{ ok: boolean; eventId?: number }> {
+  const { data } = await apiClient.post(
+    `/api/driver/trips/${tripId}/simulate-lane-drift`,
   );
   return data;
 }

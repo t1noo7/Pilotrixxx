@@ -11,7 +11,11 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
-import { activateTrip, getCurrentTrip } from "../../../src/api/driverTrips";
+import {
+  activateTrip,
+  getCurrentTrip,
+  cancelTrip,
+} from "../../../src/api/driverTrips";
 import {
   connectDriverSocket,
   disconnectDriverSocket,
@@ -94,6 +98,7 @@ export default function WaitingScreen() {
 
   const [ready, setReady] = useState(false);
   const [activating, setActivating] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [hydrating, setHydrating] = useState(true);
   const [initialVehiclePos, setInitialVehiclePos] = useState<{
     latitude: number | null;
@@ -398,6 +403,34 @@ export default function WaitingScreen() {
     }
   }, [tripId, vehicleType]);
 
+  const handleCancel = useCallback(() => {
+    Alert.alert(
+      "Huỷ chuyến này?",
+      "Xe sẽ được trả về trạng thái sẵn sàng để người khác đặt.",
+      [
+        { text: "Không", style: "cancel" },
+        {
+          text: "Huỷ chuyến",
+          style: "destructive",
+          onPress: async () => {
+            setCancelling(true);
+            try {
+              await cancelTrip(tripId);
+              await clearPendingTripId();
+              router.replace("/(app)/vehicles");
+            } catch (err: any) {
+              Alert.alert(
+                "Không huỷ được",
+                err.response?.data?.error || "Có lỗi xảy ra, thử lại sau",
+              );
+              setCancelling(false);
+            }
+          },
+        },
+      ],
+    );
+  }, [tripId]);
+
   return (
     <View style={styles.container}>
       <Animated.View
@@ -467,6 +500,20 @@ export default function WaitingScreen() {
             </Text>
           </>
         )}
+
+        {!hydrating && (
+          <TouchableOpacity
+            style={styles.cancelLink}
+            onPress={handleCancel}
+            disabled={cancelling}
+            hitSlop={8}
+          >
+            <Text style={styles.cancelLinkText}>
+              {cancelling ? "Đang huỷ..." : "Huỷ chuyến này"}
+            </Text>
+          </TouchableOpacity>
+        )}
+
         <View style={styles.dividerHaloContainer}>
           <Animated.View
             style={[
@@ -622,6 +669,12 @@ const styles = StyleSheet.create({
     borderRadius: 30,
   },
   startBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  cancelLink: { marginTop: 4, padding: 4 },
+  cancelLinkText: {
+    fontSize: 12,
+    color: "#ef4444",
+    textDecorationLine: "underline",
+  },
   titleWrapper: {
     width: 280,
     height: 90,

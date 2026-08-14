@@ -21,6 +21,55 @@ const ARRIVAL_THRESHOLD_M = 30;
 const SPEED_JITTER_RATIO = 0.15;
 const SPEED_SMOOTHING = 0.25; // he so muot - cang thap cang tron, doi tu tu
 
+// --- Debug event simulation (nut giả lập trên trip/[id].tsx) ---------------
+// Moi loai deu tac dong THAT len vi tri/toc do noi suy (khong phai fake
+// so gui rieng) - de marker demo hien dung hanh vi khi hoi dong xem, dung
+// tinh than "lam tu te" da chot thay vi overlay/rung gia.
+export type DemoEventType =
+  | "hard_brake"
+  | "rapid_accel"
+  | "sharp_turn"
+  | "lane_drift"
+  | "overspeed";
+
+interface DemoEventConfig {
+  durationMs: number;
+}
+
+const EVENT_CONFIGS: Record<DemoEventType, DemoEventConfig> = {
+  hard_brake: { durationMs: 1500 },
+  rapid_accel: { durationMs: 1500 },
+  sharp_turn: { durationMs: 1200 },
+  lane_drift: { durationMs: 2500 },
+  // Dai hon cac event kia mot chut - "vuot toc do" thuong keo dai ca doan
+  // duong chu khong phai 1 khoanh khac ngan nhu phanh/tang toc dot ngot.
+  overspeed: { durationMs: 3000 },
+};
+
+const LANE_DRIFT_OFFSET_M = 3.2; // ~1 lan duong pho o VN, du de thay ro
+const SHARP_TURN_OFFSET_M = 2.2; // dao dong nhe hon lane_drift - "lang lach"
+const EARTH_RADIUS_M = 6371000;
+
+// Dich 1 diem GPS theo huong bearingDeg, khoang cach distanceM - xap xi
+// phang (equirectangular), du chinh xac cho offset vai met, khong can
+// cong thuc great-circle day du cho quy mo nay.
+function offsetPoint(
+  lat: number,
+  lng: number,
+  bearingDeg: number,
+  distanceM: number,
+): { latitude: number; longitude: number } {
+  const bearingRad = (bearingDeg * Math.PI) / 180;
+  const dLat = (distanceM * Math.cos(bearingRad)) / EARTH_RADIUS_M;
+  const dLng =
+    (distanceM * Math.sin(bearingRad)) /
+    (EARTH_RADIUS_M * Math.cos((lat * Math.PI) / 180));
+  return {
+    latitude: lat + (dLat * 180) / Math.PI,
+    longitude: lng + (dLng * 180) / Math.PI,
+  };
+}
+
 export interface DemoTickData {
   latitude: number;
   longitude: number;
@@ -59,6 +108,14 @@ export function useDemoRouteSimulation(
   const distIntoRouteRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const arrivedRef = useRef(false);
+  // Event dang mo phong (null = khong co gi dang chay). Doc/ghi tu ca
+  // tick loop (setInterval) lan ham triggerEvent goi tu ben ngoai - dung
+  // ref (khong phai state) vi khong can re-render khi doi, chi can gia
+  // tri moi nhat luc tick tiep theo chay.
+  const activeEventRef = useRef<{
+    type: DemoEventType;
+    startedAt: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!start || !destination) return;
@@ -137,6 +194,35 @@ export function useDemoRouteSimulation(
           speed = currentSpeedRef.current;
         }
 
+        // --- Debug event override (nut gia lap) ---------------------------
+        // Kiem tra/don dep event het han truoc, roi ap dung len speed neu
+        // con dang active. Chi 3 loai anh huong TOC DO (hard_brake giam
+        // manh, rapid_accel/overspeed tang manh) - sharp_turn/lane_drift
+        // anh huong VI TRI NGANG, xu ly rieng ben duoi sau khi noi suy toa
+        // do tam thoi (offset khong duoc lam sai lech distIntoRouteRef -
+        // quang duong "thuc" doc theo tim duong van phai tinh dung, chi
+        // diem hien thi cuoi cung moi bi lech).
+        let eventElapsedMs = 0;
+        const activeEvent = activeEventRef.current;
+        if (activeEvent) {
+          eventElapsedMs = Date.now() - activeEvent.startedAt;
+          if (eventElapsedMs >= EVENT_CONFIGS[activeEvent.type].durationMs) {
+            activeEventRef.current = null; // het han, don dep
+          } else if (activeEvent.type === "hard_brake") {
+            // Giam nhanh ve gan 0 - khong tra ve tu dong trong event, de
+            // SPEED_SMOOTHING tick thuong sau do tu keo dan len lai (nhin
+            // giong "tha ga tu tu sau khi phanh" hon la bat len ngay lap tuc).
+            speed = Math.max(0.3, speed * 0.08);
+            currentSpeedRef.current = speed;
+          } else if (
+            activeEvent.type === "rapid_accel" ||
+            activeEvent.type === "overspeed"
+          ) {
+            speed = speed * 3;
+            currentSpeedRef.current = speed;
+          }
+        }
+
         distIntoRouteRef.current += speed * (STEP_INTERVAL_MS / 1000);
         const clampedDist = Math.min(distIntoRouteRef.current, total);
 
@@ -161,7 +247,47 @@ export function useDemoRouteSimulation(
           p2.longitude,
         );
 
-        onTick({ latitude, longitude, speedMps: speed, headingDeg });
+        // --- Debug event override: lech ngang (sharp_turn/lane_drift) -----
+        // Chi doi diem HIEN THI cuoi cung, khong dung distIntoRouteRef -
+        // xem giai thich o khoi override toc do phia tren.
+        let displayLatitude = latitude;
+        let displayLongitude = longitude;
+        if (
+          activeEventRef.current &&
+          (activeEventRef.current.type === "lane_drift" ||
+            activeEventRef.current.type === "sharp_turn")
+        ) {
+          const cfg = EVENT_CONFIGS[activeEventRef.current.type];
+          const t = Math.min(1, eventElapsedMs / cfg.durationMs);
+          let offsetM = 0;
+          if (activeEventRef.current.type === "lane_drift") {
+            // Hinh thang: lech dan sang trong 30% dau, giu nguyen giua,
+            // tra ve dan trong 30% cuoi - nhin muot, khong giat cuc.
+            const RAMP = 0.3;
+            if (t < RAMP) offsetM = (t / RAMP) * LANE_DRIFT_OFFSET_M;
+            else if (t < 1 - RAMP) offsetM = LANE_DRIFT_OFFSET_M;
+            else offsetM = ((1 - t) / RAMP) * LANE_DRIFT_OFFSET_M;
+          } else {
+            // sharp_turn: dao dong 2 chu ky trai-phai - mo phong lang lach
+            // nhanh, khac han kieu lech-giu 1 huong cua lane_drift.
+            offsetM = Math.sin(t * Math.PI * 4) * SHARP_TURN_OFFSET_M;
+          }
+          const offset = offsetPoint(
+            latitude,
+            longitude,
+            headingDeg + 90, // vuong goc ben phai huong di
+            offsetM,
+          );
+          displayLatitude = offset.latitude;
+          displayLongitude = offset.longitude;
+        }
+
+        onTick({
+          latitude: displayLatitude,
+          longitude: displayLongitude,
+          speedMps: speed,
+          headingDeg,
+        });
 
         const remainingM = Math.max(0, total - clampedDist);
         setDistanceRemainingKm(remainingM / 1000);
@@ -188,5 +314,13 @@ export function useDemoRouteSimulation(
     destination?.longitude,
   ]);
 
-  return { status, distanceRemainingKm, etaSeconds };
+  // Ham imperative goi tu ben ngoai (vd onPress nut gia lap) - chi ghi
+  // vao ref, tick loop tu doc va xu ly nhu mo ta o tren. Neu dang co event
+  // khac chay do, event moi ghi de len (khong queue) - dung cho muc dich
+  // demo don gian, khong can hang doi phuc tap.
+  function triggerEvent(type: DemoEventType) {
+    activeEventRef.current = { type, startedAt: Date.now() };
+  }
+
+  return { status, distanceRemainingKm, etaSeconds, triggerEvent };
 }

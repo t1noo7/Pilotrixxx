@@ -8,6 +8,7 @@ import {
   Modal,
   Animated,
   Image,
+  ScrollView,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import * as Location from "expo-location";
@@ -19,13 +20,16 @@ import {
   endTrip,
   rateTrip,
   getAqiHeatmap,
+  simulateLaneDrift,
 } from "../../../src/api/driverTrips";
 import { WebView } from "react-native-webview";
 import { AQI_HEATMAP_HTML } from "../../../src/webview/aqiHeatmapHtml";
 import LoadingOverlay from "../../../src/components/LoadingOverlay";
 import VehicleIcon from "../../../src/components/VehicleIcon";
 import { useTrip } from "../../../src/context/TripContext";
-import type { RiskScore, VehicleType } from "../../../src/types";
+import type { RiskScore, TripSummary, VehicleType } from "../../../src/types";
+import RiskRadarChart from "../../../src/components/RiskRadarChart";
+import { buildRiskBreakdown } from "../../../src/utils/riskBreakdown";
 import { Accelerometer } from "expo-sensors";
 import { computeBearing, computeDistanceMeters } from "../../../src/utils/geo";
 import {
@@ -111,7 +115,11 @@ export default function TripScreen() {
   const [ending, setEnding] = useState(false);
   const [result, setResult] = useState<{
     riskScore: RiskScore | null;
+    summary: TripSummary | null;
   } | null>(null);
+  // Mac dinh thu gon (chi hien badge nhu truoc) - bam moi mo radar
+  // breakdown, tranh Modal ket qua qua rop thong tin ngay tu dau.
+  const [breakdownExpanded, setBreakdownExpanded] = useState(false);
   const [rating, setRating] = useState(0);
   const [ratingSubmitting, setRatingSubmitting] = useState(false);
   // Diem xuat phat cho route mo phong - lay 1 lan qua getCurrentPositionAsync
@@ -324,6 +332,7 @@ export default function TripScreen() {
     status: demoStatus,
     distanceRemainingKm,
     etaSeconds,
+    triggerEvent,
   } = useDemoRouteSimulation(
     demoMode ? demoStart : null,
     demoMode ? destination : null,
@@ -703,7 +712,7 @@ export default function TripScreen() {
                 longitude: lastCoordsRef.current.longitude,
               });
             }
-            setResult({ riskScore: res.riskScore });
+            setResult({ riskScore: res.riskScore, summary: res.summary });
             setEnding(false);
           } catch (err: any) {
             Alert.alert(
@@ -738,6 +747,7 @@ export default function TripScreen() {
 
   const closeResultAndGoBack = () => {
     setResult(null); // đóng Modal component, animation fade tự chạy hết
+    setBreakdownExpanded(false); // reset cho lần kết thúc chuyến tiếp theo
     setTimeout(() => {
       router.dismissTo("/(app)/vehicles"); // thay router.replace
     }, 300);
@@ -851,47 +861,74 @@ export default function TripScreen() {
       )}
 
       {__DEV__ && (
-        <TouchableOpacity
-          style={styles.debugBtn}
-          onPress={() => {
-            accelPeakRef.current = {
-              forwardAccel: 0,
-              forwardBrake: 0.35,
-              lateral: 0.45,
-            };
-            Alert.alert(
-              "Debug",
-              "Đã set giả lập phanh gấp + cua gắt, đợi lần gửi telemetry tiếp theo (~8s) rồi check DB",
-            );
-          }}
-        >
-          <Text style={styles.endBtnText}>🧪 Giả lập sự kiện</Text>
-        </TouchableOpacity>
-      )}
+        <View style={styles.debugEventRow}>
+          <TouchableOpacity
+            style={styles.debugChip}
+            onPress={() => {
+              // Nguong high hard_brake = 0.75 (ruleEngine.js) - dat 0.85
+              // de chac chan vuot, du thap hon 1 xiu vi accel that thinh
+              // thoang co the vuot 1.0 nhe do rung tay.
+              accelPeakRef.current.forwardBrake = 0.85;
+              triggerEvent("hard_brake");
+            }}
+          >
+            <Text style={styles.debugChipText}>🛑 Phanh gấp</Text>
+          </TouchableOpacity>
 
-      {__DEV__ && (
-        <TouchableOpacity
-          style={[
-            styles.debugBtn,
-            styles.debugBtnSpeed,
-            speedTestActive && styles.debugBtnSpeedActive,
-          ]}
-          onPress={() => {
-            const next = speedTestMultiplierRef.current > 1 ? 1 : 3;
-            speedTestMultiplierRef.current = next;
-            setSpeedTestActive(next > 1);
-            Alert.alert(
-              "Debug",
-              next > 1
-                ? "Đã nhân x3 tốc độ hiển thị/gửi lên - đợi vài lần telemetry để canh bao overspeed kích hoạt"
-                : "Đã tắt, tốc độ về bình thường",
-            );
-          }}
-        >
-          <Text style={styles.endBtnText}>
-            {speedTestActive ? "🚨 Đang x3 tốc độ" : "🚨 Giả lập vượt tốc độ"}
-          </Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.debugChip}
+            onPress={() => {
+              // Nguong high rapid_accel = 0.4 (accel_y, g) - dat 0.55
+              accelPeakRef.current.forwardAccel = 0.55;
+              triggerEvent("rapid_accel");
+            }}
+          >
+            <Text style={styles.debugChipText}>🚀 Tăng tốc</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.debugChip}
+            onPress={() => {
+              // Nguong high sharp_turn = 0.5 (|accel_x|, g) - dat 0.65
+              accelPeakRef.current.lateral = 0.65;
+              triggerEvent("sharp_turn");
+            }}
+          >
+            <Text style={styles.debugChipText}>🌀 Cua gắt</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.debugChip}
+            onPress={async () => {
+              // Hieu ung marker chay ngay (khong cho mang) - request nen
+              // chi de GHI NHAN event vao DB, khong phai dieu kien de
+              // marker lech ngang.
+              triggerEvent("lane_drift");
+              if (!tripId) return;
+              try {
+                await simulateLaneDrift(tripId);
+              } catch (e) {
+                console.error("[debug] simulate-lane-drift failed:", e);
+              }
+            }}
+          >
+            <Text style={styles.debugChipText}>↔️ Lấn làn</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.debugChip}
+            onPress={() => {
+              // Khong can fake accel/speed rieng - triggerEvent tu lam
+              // toc do noi suy tang that (x3), telemetry gui len tu
+              // lastCoordsRef se tu mang dung gia tri cao do, rule-engine
+              // tinh ratio = speed/speed_limit tu vuot nguong binh thuong,
+              // khong can can thiep gi them o day.
+              triggerEvent("overspeed");
+            }}
+          >
+            <Text style={styles.debugChipText}>🚨 Vượt tốc</Text>
+          </TouchableOpacity>
+        </View>
       )}
 
       <TouchableOpacity
@@ -965,13 +1002,76 @@ export default function TripScreen() {
                 <Text style={styles.riskBadgeText}>
                   {RISK_LABEL[riskLevel] ?? riskLevel}
                   {result?.riskScore?.final?.risk_score !== undefined
-                    ? ` · ${Math.round(result.riskScore.final.risk_score * 100)} điểm`
+                    ? // Dao nguoc risk_score (0=an toan, 1=nguy hiem - dung
+                      // cho model/backend) thanh "diem tai xe /10" (cao =
+                      // tot) - de hieu voi driver, khong doi gi ben model.
+                      ` · ${Math.round(
+                          (1 - result.riskScore.final.risk_score) * 10,
+                        )}/10 điểm`
                     : ""}
                 </Text>
               </View>
             ) : (
               <Text style={styles.resultSub}>Đang chờ tính điểm rủi ro...</Text>
             )}
+
+            {result?.summary && (
+              <TouchableOpacity
+                style={styles.breakdownToggle}
+                onPress={() => setBreakdownExpanded((v) => !v)}
+              >
+                <Text style={styles.breakdownToggleText}>
+                  {breakdownExpanded ? "Ẩn chi tiết ▲" : "Xem điểm chi tiết ▼"}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {breakdownExpanded &&
+              result?.summary &&
+              (() => {
+                const { axes, finalComment } = buildRiskBreakdown(
+                  result.summary!,
+                  riskLevel,
+                );
+                return (
+                  <ScrollView
+                    style={styles.breakdownScroll}
+                    showsVerticalScrollIndicator={false}
+                  >
+                    <RiskRadarChart
+                      axes={axes}
+                      color={RISK_COLOR[riskLevel ?? "safe"]}
+                    />
+                    {finalComment ? (
+                      <Text style={styles.breakdownFinalComment}>
+                        {finalComment}
+                      </Text>
+                    ) : null}
+                    {axes.map((a) => (
+                      <View key={a.key} style={styles.breakdownRow}>
+                        <View style={styles.breakdownRowHeader}>
+                          <Text style={styles.breakdownRowLabel}>
+                            {a.emoji} {a.label}
+                          </Text>
+                          <Text style={styles.breakdownRowValue}>
+                            {a.rawValue} {a.unit}
+                          </Text>
+                        </View>
+                        <Text style={styles.breakdownRowComment}>
+                          {a.comment}
+                        </Text>
+                      </View>
+                    ))}
+                    {result.summary.gps_invalid_count > 0 && (
+                      <Text style={styles.breakdownGpsNote}>
+                        📡 Mất tín hiệu GPS {result.summary.gps_invalid_count}{" "}
+                        lần trong chuyến — lỗi thiết bị/mạng, không tính vào
+                        điểm rủi ro.
+                      </Text>
+                    )}
+                  </ScrollView>
+                );
+              })()}
 
             <View style={styles.starRow}>
               {[1, 2, 3, 4, 5].map((n) => (
@@ -1060,17 +1160,23 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   endBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-  debugBtn: {
+  debugEventRow: {
     position: "absolute",
     bottom: 96,
-    alignSelf: "center",
-    backgroundColor: "#7c3aed",
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 24,
+    left: 16,
+    right: 16,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 8,
   },
-  debugBtnSpeed: { bottom: 150, backgroundColor: "#7c3aed" },
-  debugBtnSpeedActive: { backgroundColor: "#dc2626" },
+  debugChip: {
+    backgroundColor: "#7c3aed",
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+  },
+  debugChipText: { color: "#fff", fontWeight: "700", fontSize: 13 },
   overspeedBg: {
     position: "absolute",
     top: 0,
@@ -1125,6 +1231,62 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 10,
+  },
+  breakdownToggle: {
+    marginTop: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    backgroundColor: "#f3f4f6",
+  },
+  breakdownToggleText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  breakdownScroll: {
+    maxHeight: 340,
+    width: "100%",
+  },
+  breakdownFinalComment: {
+    fontSize: 12,
+    color: "#374151",
+    textAlign: "center",
+    fontStyle: "italic",
+    marginTop: 4,
+    marginBottom: 8,
+    paddingHorizontal: 8,
+  },
+  breakdownRow: {
+    width: "100%",
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#f3f4f6",
+  },
+  breakdownRowHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  breakdownRowLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  breakdownRowValue: {
+    fontSize: 12,
+    color: "#6b7280",
+  },
+  breakdownRowComment: {
+    fontSize: 12,
+    color: "#4b5563",
+    marginTop: 2,
+  },
+  breakdownGpsNote: {
+    fontSize: 11,
+    color: "#9ca3af",
+    marginTop: 8,
+    fontStyle: "italic",
   },
   starRow: { flexDirection: "row", gap: 6, marginTop: 4 },
   ratingHint: { fontSize: 12, color: "#6b7280" },

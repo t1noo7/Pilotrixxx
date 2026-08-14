@@ -54,6 +54,28 @@ export interface RiskScore {
   final: { risk_score: number; risk_level: "safe" | "medium" | "dangerous" };
 }
 
+// Khớp CHÍNH XÁC field trả về bởi generateTripSummary()
+// (backend/src/services/tripSummaryService.js) - không thêm/bớt field
+// tự ý, vì đây cũng chính là input cho ML (xem FEATURES trong ml/train.py).
+export interface TripSummary {
+  duration_seconds: number;
+  distance_km: number;
+  avg_speed: number;
+  max_speed: number;
+  max_accel: number;
+  max_brake_intensity: number;
+  hard_brake_count: number;
+  rapid_accel_count: number;
+  sharp_turn_count: number;
+  overspeed_count: number;
+  overspeed_duration_seconds: number;
+  hard_brake_per_min: number;
+  rapid_accel_per_min: number;
+  sharp_turn_per_min: number;
+  overspeed_ratio: number;
+  gps_invalid_count: number;
+}
+
 export interface TripHistoryItem {
   trip_id: string;
   status: string;
