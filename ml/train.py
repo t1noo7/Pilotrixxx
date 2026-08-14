@@ -17,6 +17,7 @@ NOTE về đường dẫn: Script đọc path tương đối so với vị trí 
 không phải cwd. Dùng __file__ để tính, chạy từ đâu cũng được.
 """
 
+import json
 import os
 import pickle
 import sys
@@ -30,7 +31,8 @@ from sklearn.metrics import (
     classification_report,
     confusion_matrix,
 )
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold, cross_validate, train_test_split
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 
 # ---------------------------------------------------------------------------
@@ -85,6 +87,96 @@ le.fit(CLASS_ORDER)
 y_enc = le.transform(y)
 
 # ---------------------------------------------------------------------------
+# 2.5. 5-fold Stratified Cross-Validation
+#
+#      Mục đích: ước lượng ĐỘ ỔN ĐỊNH của model qua nhiều cách chia dữ liệu
+#      khác nhau (giảm rủi ro "may mắn" hay "xui" với đúng 1 lần split như
+#      bước 3 bên dưới) - dùng để BÁO CÁO trước hội đồng, KHÔNG phải để
+#      chọn/lưu model cuối. Model thật sự lưu ra .pkl vẫn train ở bước 5-7
+#      bằng đúng 1 lần split 80/20 như từ trước, giữ nguyên hành vi
+#      predict.py, không đổi gì hệ thống đang chạy.
+#
+#      Chạy trên TOÀN BỘ X, y_enc (900 trip) chứ không chỉ X_train, vì mục
+#      tiêu là đo phương sai của model nói chung trên phân phối dữ liệu,
+#      không phải đánh giá riêng 1 tập train cụ thể.
+#
+#      LR dùng Pipeline(StandardScaler, LogisticRegression) thay vì scaler
+#      global fit 1 lần trên toàn bộ X - nếu fit_transform trước rồi mới
+#      CV thì mean/std của scaler đã "nhìn thấy" luôn cả phần dữ liệu sẽ
+#      làm test ở từng fold (data leakage nhẹ nhưng vẫn sai methodology).
+#      Pipeline đảm bảo scaler chỉ fit trên phần train của MỖI fold.
+# ---------------------------------------------------------------------------
+print("\n" + "=" * 60)
+print("5-FOLD STRATIFIED CROSS-VALIDATION")
+print("=" * 60)
+
+skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+lr_cv_pipeline = Pipeline(
+    [
+        ("scaler", StandardScaler()),
+        (
+            "clf",
+            LogisticRegression(
+                max_iter=1000,
+                random_state=42,
+                class_weight="balanced",
+                solver="lbfgs",
+            ),
+        ),
+    ]
+)
+
+# Cấu hình giống hệt RF ở bước 6 bên dưới, để số CV so sánh được với
+# accuracy của model cuối cùng thật sự lưu ra .pkl
+rf_cv_estimator = RandomForestClassifier(
+    n_estimators=200,
+    max_depth=None,
+    min_samples_split=4,
+    min_samples_leaf=2,
+    class_weight="balanced",
+    random_state=42,
+    n_jobs=-1,
+)
+
+CV_SCORING = ["accuracy", "f1_macro"]
+cv_results_summary = {}
+
+for cv_name, cv_estimator in [
+    ("Logistic Regression", lr_cv_pipeline),
+    ("Random Forest", rf_cv_estimator),
+]:
+    cv_res = cross_validate(
+        cv_estimator, X, y_enc, cv=skf, scoring=CV_SCORING, return_train_score=False
+    )
+    acc_folds = cv_res["test_accuracy"]
+    f1_folds = cv_res["test_f1_macro"]
+
+    print(f"\n[{cv_name}]")
+    print(f"  {'Fold':<6}{'Accuracy':<12}{'F1-macro':<12}")
+    for i, (a, f1) in enumerate(zip(acc_folds, f1_folds), start=1):
+        print(f"  {i:<6}{a:<12.4f}{f1:<12.4f}")
+    print(f"  {'Mean':<6}{acc_folds.mean():<12.4f}{f1_folds.mean():<12.4f}")
+    print(f"  {'Std':<6}{acc_folds.std():<12.4f}{f1_folds.std():<12.4f}")
+
+    cv_results_summary[cv_name] = {
+        "accuracy_per_fold": [round(float(a), 4) for a in acc_folds],
+        "accuracy_mean": round(float(acc_folds.mean()), 4),
+        "accuracy_std": round(float(acc_folds.std()), 4),
+        "f1_macro_per_fold": [round(float(f), 4) for f in f1_folds],
+        "f1_macro_mean": round(float(f1_folds.mean()), 4),
+        "f1_macro_std": round(float(f1_folds.std()), 4),
+    }
+
+# Lưu ra JSON riêng - để dán bảng vào báo cáo Word mà không phải chép tay
+# số từ console (dễ gõ nhầm), và có thể mở lại xem sau mà không cần
+# chạy lại toàn bộ script train.
+CV_RESULTS_PATH = os.path.join(MODELS_DIR, "cv_results.json")
+with open(CV_RESULTS_PATH, "w") as f:
+    json.dump(cv_results_summary, f, indent=2, ensure_ascii=False)
+print(f"\n[Saved] {CV_RESULTS_PATH}")
+
+# ---------------------------------------------------------------------------
 # 3. Train / Test split (80/20, stratified)
 # ---------------------------------------------------------------------------
 X_train, X_test, y_train, y_test = train_test_split(
@@ -115,9 +207,7 @@ y_prob_lr = lr.predict_proba(X_test_scaled)  # shape (n, 3)
 
 print("\n[Classification Report]")
 print(
-    classification_report(
-        y_test, y_pred_lr, target_names=le.classes_, zero_division=0
-    )
+    classification_report(y_test, y_pred_lr, target_names=le.classes_, zero_division=0)
 )
 
 print("[Confusion Matrix]  (rows=actual, cols=predicted)")
@@ -137,7 +227,7 @@ print("=" * 60)
 
 rf = RandomForestClassifier(
     n_estimators=200,
-    max_depth=None,           # để tự grow - dataset nhỏ, không cần prune
+    max_depth=None,  # để tự grow - dataset nhỏ, không cần prune
     min_samples_split=4,
     min_samples_leaf=2,
     class_weight="balanced",
@@ -150,9 +240,7 @@ y_prob_rf = rf.predict_proba(X_test)
 
 print("\n[Classification Report]")
 print(
-    classification_report(
-        y_test, y_pred_rf, target_names=le.classes_, zero_division=0
-    )
+    classification_report(y_test, y_pred_rf, target_names=le.classes_, zero_division=0)
 )
 
 print("[Confusion Matrix]  (rows=actual, cols=predicted)")

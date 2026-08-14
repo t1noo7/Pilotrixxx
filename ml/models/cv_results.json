@@ -1,0 +1,42 @@
+{
+  "Logistic Regression": {
+    "accuracy_per_fold": [
+      0.9389,
+      0.9556,
+      0.9611,
+      0.9333,
+      0.9278
+    ],
+    "accuracy_mean": 0.9433,
+    "accuracy_std": 0.0129,
+    "f1_macro_per_fold": [
+      0.9393,
+      0.9555,
+      0.961,
+      0.9333,
+      0.928
+    ],
+    "f1_macro_mean": 0.9434,
+    "f1_macro_std": 0.0128
+  },
+  "Random Forest": {
+    "accuracy_per_fold": [
+      0.9167,
+      0.9556,
+      0.9556,
+      0.9556,
+      0.9333
+    ],
+    "accuracy_mean": 0.9433,
+    "accuracy_std": 0.0159,
+    "f1_macro_per_fold": [
+      0.9176,
+      0.9555,
+      0.9554,
+      0.9555,
+      0.9333
+    ],
+    "f1_macro_mean": 0.9435,
+    "f1_macro_std": 0.0156
+  }
+}
