@@ -220,6 +220,42 @@ driverTripsRouter.post('/trips/:id/activate', async (req, res) => {
 });
 
 /**
+ * POST /api/driver/trips/:id/cancel
+ * Driver chủ động huỷ trip đang 'pending' - dùng khi xe đang tới nhưng
+ * driver đổi ý muốn chọn xe khác, KHÔNG cần đợi hết
+ * PENDING_TRIP_TIMEOUT_MINUTES/PICKUP_WAIT_TIMEOUT_MINUTES như 2 nhánh
+ * tự động ở GET /trips/current.
+ */
+driverTripsRouter.post('/trips/:id/cancel', async (req, res) => {
+    const tripId = parseInt(req.params.id, 10);
+    if (Number.isNaN(tripId)) return res.status(400).json({ error: 'tripId không hợp lệ' });
+
+    try {
+        const result = await pool.query(
+            `UPDATE trips SET status = 'aborted', ended_at = now()
+             WHERE trip_id = $1 AND driver_id = $2 AND status = 'pending'
+             RETURNING trip_id, vehicle_id`,
+            [tripId, req.driver.driverId]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                error: `Chuyến #${tripId} không tồn tại, không thuộc về bạn, hoặc không còn ở trạng thái chờ`,
+            });
+        }
+        const { vehicle_id: vehicleId } = result.rows[0];
+
+        // Giống 2 nhánh tự động - báo ngay dashboard admin xe đã rời trạng
+        // thái "incoming" (tránh chờ refetch 30s bên FleetMap).
+        io.emit('trip:completed', { tripId, vehicleId, status: 'aborted' });
+
+        res.json({ tripId, status: 'aborted' });
+    } catch (err) {
+        console.error('[POST /driver/trips/:id/cancel] Error:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
  * PATCH /api/driver/trips/:id/route-mode
  * Body: { demoMode, destLatitude?, destLongitude? }
  * Luu lai che do (GPS that/demo) + toa do dich driver chon o
@@ -313,6 +349,85 @@ driverTripsRouter.post('/trips/:id/telemetry', async (req, res) => {
     } catch (err) {
         console.error('[POST /driver/trips/:id/telemetry] Error:', err.message);
         res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * POST /api/driver/trips/:id/simulate-lane-drift
+ *
+ * DEV-ONLY debug route - ghi thẳng 1 event 'lane_drift' vào driver_events,
+ * KHÔNG qua ruleEngine.js. Lý do khác hẳn 4 event kia (hard_brake/
+ * rapid_accel/sharp_turn/overspeed): những event đó có 1 giá trị số đo
+ * được tại 1 thời điểm (brake_intensity, accel_x/y, speed ratio) nên rule
+ * engine tự so ngưỡng được. "Lấn làn" không có đại lượng số nào tương ứng
+ * (cần lane-level geometry, ngoài scope đồ án - đã thống nhất từ đầu) nên
+ * phải ghi nhận trực tiếp qua route riêng này khi người dùng bấm nút debug.
+ *
+ * Dùng telemetry_id GẦN NHẤT của trip để JOIN toạ độ - đúng cơ chế mà
+ * /api/trips/:id/risk-events và /api/dashboard/risk-events (checkpoint v25)
+ * đang dùng để vẽ CircleMarker trên FleetMap, nên event lane_drift giả lập
+ * này sẽ tự động hiện đúng vị trí trên dashboard admin luôn, không cần sửa
+ * gì thêm bên đó.
+ */
+driverTripsRouter.post('/trips/:id/simulate-lane-drift', async (req, res) => {
+    const tripId = parseInt(req.params.id, 10);
+    if (Number.isNaN(tripId)) {
+        return res.status(400).json({ error: 'tripId khong hop le' });
+    }
+
+    const client = await pool.connect();
+    try {
+        const telemetryRes = await client.query(
+            `SELECT telemetry_id, vehicle_id, driver_id
+             FROM telemetry_raw
+             WHERE trip_id = $1
+             ORDER BY ts DESC
+             LIMIT 1`,
+            [tripId]
+        );
+        if (telemetryRes.rows.length === 0) {
+            return res.status(400).json({
+                error: 'Chua co telemetry nao cho trip nay - doi vai giay roi thu lai',
+            });
+        }
+        const t = telemetryRes.rows[0];
+
+        // severity 'high' co chu dich (khong phai mac dinh) - vi day la
+        // event dang demo chu dong bam, muon no hien alert realtime tren
+        // Dashboard giong cac event high khac, khong bi chim lan.
+        const eventRes = await client.query(
+            `INSERT INTO driver_events (trip_id, telemetry_id, event_type, severity, metric_value, occurred_at)
+             VALUES ($1, $2, 'lane_drift', 'high', $3, now())
+             RETURNING event_id`,
+            [tripId, t.telemetry_id, JSON.stringify({ simulated: true })]
+        );
+        const eventId = eventRes.rows[0].event_id;
+
+        const message = `Lan lan luc ${new Date().toLocaleTimeString('vi-VN')} (gia lap)`;
+        await client.query(
+            `INSERT INTO alerts (trip_id, vehicle_id, driver_id, event_id, event_type, severity, message, occurred_at)
+             VALUES ($1, $2, $3, $4, 'lane_drift', 'high', $5, now())`,
+            [tripId, t.vehicle_id, t.driver_id, eventId, message]
+        );
+
+        io.emit('alert', {
+            tripId,
+            vehicleId: t.vehicle_id,
+            driverId: t.driver_id,
+            eventType: 'lane_drift',
+            severity: 'high',
+            message,
+            occurredAt: new Date().toISOString(),
+            metricValue: { simulated: true },
+        });
+        console.log(`[lane-drift-debug] ALERT emitted: ${message} (trip ${tripId})`);
+
+        res.status(201).json({ ok: true, eventId });
+    } catch (e) {
+        console.error(`[driver/trips/:id/simulate-lane-drift] error trip ${tripId}:`, e.message);
+        res.status(500).json({ error: 'Khong the ghi nhan su kien lan lan' });
+    } finally {
+        client.release();
     }
 });
 
