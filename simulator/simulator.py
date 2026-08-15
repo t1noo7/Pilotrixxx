@@ -268,6 +268,13 @@ def run_simulation(
                 heading_to_target = True
                 target_start_time = time.time()
                 initial_eta_seconds = route.last_eta_seconds
+                # QUAN TRONG: clear() lai ngay sau khi "tieu thu" xong tin
+                # hieu nay cho muc dich CHUYEN HUONG - neu khong, is_set()
+                # se mai mai la True (Event khong tu reset), khien nhanh
+                # check "huy giua chung" ben duoi kich hoat SAI ngay vong
+                # lap tiep theo, tuong nham la driver vua huy dù that ra
+                # chi la tin hieu chuyen huong cu con sot lai.
+                stop_event.clear()
 
                 # BUG CU: num_points van giu nguyen tu dau (random 5-15p
                 # cua scenario patrol goc, khong lien quan quang duong toi
@@ -303,6 +310,21 @@ def run_simulation(
                         f"[{prefix}] Khong lay duoc ETA tu OSRM luc ngat giua chung, "
                         f"giu nguyen budget con lai."
                     )
+
+            # NHANH MOI: huy giua chung KHI DA DANG di don driver (khac
+            # nhanh o tren - nhanh do chi xu ly chieu "chua di don -> bat
+            # dau di don"; nhanh nay xu ly chieu nguoc: "dang di don ->
+            # driver huy giua chung"). Truoc day khong co check nao o day
+            # ca - stop_event.is_set() sau khi heading_to_target=True
+            # khong bao gio duoc doc lai, xe cu chay tiep toi het duong du
+            # backend da danh dau trip 'aborted' tu lau.
+            if stop_event is not None and stop_event.is_set() and heading_to_target:
+                print(
+                    f"[{prefix}] Bi huy giua chung khi dang di don driver "
+                    f"(driver da huy chuyen tu app)."
+                )
+                target_box["reached"] = False
+                break
 
             if (
                 heading_to_target

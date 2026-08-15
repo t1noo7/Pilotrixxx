@@ -26,6 +26,13 @@ from simulator import run_simulation, start_trip, end_trip, abort_trip
 SCENARIOS = ["safe", "moderate", "dangerous"]
 
 running = {}  # device_ident -> {"thread": Thread, "stop_event": Event}
+# vehicle_id -> Event - RIENG cho nhanh "xe dang dung yen, di don ngay"
+# (immediate_target=True trong relocate_then_release). Nhanh nay TRUOC DAY
+# khong tao stop_event nao ca (goi run_simulation() truc tiep, khong dang
+# ky vao dau) - nen khong co cach nao huy giua chung. Dict nay la noi
+# DUY NHAT giu tham chieu toi stop_event cua no, de on_returned() co the
+# tim va set() khi driver huy chuyen.
+active_repositions = {}
 lock = threading.Lock()
 
 sio = socketio.Client(request_timeout=30)
@@ -256,11 +263,20 @@ def relocate_then_release(
         f"[fleet] Xe {device_ident} dang dung yen tai ({cur_lat}, {cur_lng}), bat dau di don driver..."
     )
     target_box = {"lat": target_lat, "lng": target_lng}
+
+    # Tao stop_event RIENG cho lan reposition nay - truoc day khong co gi
+    # ca nen khong the huy giua chung (xem comment o dinh file). Dang ky
+    # vao active_repositions de on_returned() tim duoc khi driver huy.
+    reposition_stop_event = threading.Event()
+    with lock:
+        active_repositions[vehicle_id] = reposition_stop_event
+
     try:
         run_simulation(
             device_ident=device_ident,
             scenario="reposition",
             log_prefix=device_ident[-3:],
+            stop_event=reposition_stop_event,
             target_box=target_box,
             start_lat=cur_lat,
             start_lng=cur_lng,
@@ -271,6 +287,11 @@ def relocate_then_release(
             sio.emit(
                 "vehicle:ready", {"vehicleId": vehicle_id}, namespace="/fleet-control"
             )
+        elif reposition_stop_event.is_set():
+            # Bi huy giua chung (khac voi truong hop het gio tu nhien) -
+            # khong emit vehicle:ready/vehicle:failed gi ca, vi day la ket
+            # qua CHU DICH tu driver, khong phai loi can bao.
+            print(f"[fleet] Xe {device_ident} da dung reposition vi driver huy chuyen.")
         else:
             print(
                 f"[fleet] Xe {device_ident} khong toi kip diem don (het thoi gian chuyen)."
@@ -290,6 +311,12 @@ def relocate_then_release(
             {"vehicleId": vehicle_id, "reason": str(e)},
             namespace="/fleet-control",
         )
+    finally:
+        # Don dep bat ke thanh cong/loi/bi huy - tranh entry cu treo lai
+        # tro toi stop_event da "xai xong", gay nham lan cho lan sau.
+        with lock:
+            if active_repositions.get(vehicle_id) is reposition_stop_event:
+                active_repositions.pop(vehicle_id, None)
 
 
 def register_handlers(fleet: list[dict]):
@@ -305,9 +332,39 @@ def register_handlers(fleet: list[dict]):
         ).start()
 
     def on_returned(data):
-        print(
-            f"[fleet] Xe vehicle_id={data['vehicleId']} da duoc tra, dung yen cho luot sau."
-        )
+        vehicle_id = int(data["vehicleId"])
+        device_ident = device_for_vehicle(vehicle_id, fleet)
+
+        stopped_something = False
+
+        # Truong hop 1: xe dang o giua chung "dung yen -> di don ngay"
+        # (immediate_target=True, dang ky trong active_repositions).
+        with lock:
+            immediate_stop_event = active_repositions.get(vehicle_id)
+        if immediate_stop_event is not None:
+            immediate_stop_event.set()
+            stopped_something = True
+
+        # Truong hop 2: xe dang patrol thi bi dieu huong di don - entry
+        # VAN CON trong running (relocate_then_release dang block o
+        # .join(), chua kip pop) trong SUOT thoi gian xe dang di - nen
+        # tra cuu duoc binh thuong qua running[device_ident].
+        if device_ident is not None:
+            with lock:
+                entry = running.get(device_ident)
+            if entry is not None:
+                entry["stop_event"].set()
+                stopped_something = True
+
+        if stopped_something:
+            print(
+                f"[fleet] Da gui tin hieu HUY reposition cho vehicle_id={vehicle_id}."
+            )
+        else:
+            print(
+                f"[fleet] vehicle_id={vehicle_id} da duoc tra, dung yen cho luot sau "
+                f"(khong co reposition nao dang chay de huy)."
+            )
 
     sio.on("vehicle:requested", on_requested, namespace="/fleet-control")
     sio.on("vehicle:returned", on_returned, namespace="/fleet-control")
