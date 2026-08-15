@@ -1,5 +1,4 @@
 frontend/
-simulator/
 venv/
 node_modules/
 **/node_modules/
@@ -9,3 +8,4 @@ node_modules/
 ml/models/
 ml/data/
 *.md
+venv-gis/
