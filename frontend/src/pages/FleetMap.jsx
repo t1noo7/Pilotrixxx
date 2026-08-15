@@ -18,10 +18,10 @@ import { SATELLITE_LAYERS, VIS_PALETTE } from "./satelliteLayers.js";
 // Màu + nhãn cho lớp "Driving Risk" - marker sự kiện nguy hiểm trên bản đồ.
 // event_type phải khớp đúng giá trị enum trong DB (bảng driver_events).
 const RISK_EVENT_STYLE = {
-  hard_brake:  { color: "#f87171", label: "Phanh gấp" },
-  overspeed:   { color: "#fb923c", label: "Vượt tốc độ" },
+  hard_brake: { color: "#f87171", label: "Phanh gấp" },
+  overspeed: { color: "#fb923c", label: "Vượt tốc độ" },
   rapid_accel: { color: "#c084fc", label: "Tăng tốc đột ngột" },
-  sharp_turn:  { color: "#fbbf24", label: "Cua gắt" },
+  sharp_turn: { color: "#fbbf24", label: "Cua gắt" },
 };
 const DEFAULT_EVENT_STYLE = { color: "#94a3b8", label: "Sự kiện khác" };
 
@@ -634,7 +634,10 @@ export default function FleetMap() {
         }));
       })
       .catch((err) => {
-        console.warn(`[satellite-layer:${key}] live fetch that bai, dung anh tinh:`, err.message);
+        console.warn(
+          `[satellite-layer:${key}] live fetch that bai, dung anh tinh:`,
+          err.message,
+        );
         setLiveOverride((prev) => ({ ...prev, [key]: { status: "static" } }));
       });
   }
@@ -647,11 +650,19 @@ export default function FleetMap() {
     const live = liveOverride[activePollutant];
     const staticLayer = SATELLITE_LAYERS[activePollutant];
     if (live?.status === "live") {
-      return { ...staticLayer, imageUrl: live.imageUrl, visMin: live.visMin, visMax: live.visMax, bounds: live.bounds };
+      return {
+        ...staticLayer,
+        imageUrl: live.imageUrl,
+        visMin: live.visMin,
+        visMax: live.visMax,
+        bounds: live.bounds,
+      };
     }
     return staticLayer;
   })();
-  const liveStatus = activePollutant ? liveOverride[activePollutant]?.status : null;
+  const liveStatus = activePollutant
+    ? liveOverride[activePollutant]?.status
+    : null;
 
   // Su kien nguy hiem tong hop 7 ngay gan nhat - du lieu tinh, khong can
   // poll realtime nhu vi tri xe, chi fetch 1 lan luc mount la du.
@@ -805,7 +816,7 @@ export default function FleetMap() {
                 fontStyle: "italic",
               }}
             >
-              💺 {idleCount} xe vừa xong chặng, đang ngồi chơi xơi nước chờ cuốc
+              {idleCount} xe vừa xong chặng, đang ngồi chơi xơi nước chờ cuốc
               mới...
             </p>
           );
@@ -823,8 +834,15 @@ export default function FleetMap() {
           marginBottom: 12,
         }}
       >
-        <span style={{ fontWeight: 600 }}>🛰️ Lớp vệ tinh:</span>
-        <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+        <span style={{ fontWeight: 600 }}>LỚP VỆ TINH:</span>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            cursor: "pointer",
+          }}
+        >
           <input
             type="radio"
             name="satellite-layer"
@@ -836,7 +854,12 @@ export default function FleetMap() {
         {Object.entries(SATELLITE_LAYERS).map(([key, layer]) => (
           <label
             key={key}
-            style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              cursor: "pointer",
+            }}
             title={layer.label}
           >
             <input
@@ -854,10 +877,15 @@ export default function FleetMap() {
           </span>
         )}
         {liveStatus === "loading" && (
-          <span title="Đang gọi ảnh mới nhất từ Google Earth Engine...">⏳ Đang cập nhật...</span>
+          <span title="Đang gọi ảnh mới nhất từ Google Earth Engine...">
+            ⏳ Đang cập nhật...
+          </span>
         )}
         {liveStatus === "live" && (
-          <span style={{ color: "#22c55e" }} title="Ảnh vừa gọi trực tiếp từ Earth Engine">
+          <span
+            style={{ color: "#22c55e" }}
+            title="Ảnh vừa gọi trực tiếp từ Earth Engine"
+          >
             🟢 Live
           </span>
         )}
@@ -884,9 +912,19 @@ export default function FleetMap() {
           }}
         >
           <span>{effectiveLayer.visMin.toExponential(2)}</span>
-          <div style={{ display: "flex", height: 12, borderRadius: 3, overflow: "hidden" }}>
+          <div
+            style={{
+              display: "flex",
+              height: 12,
+              borderRadius: 3,
+              overflow: "hidden",
+            }}
+          >
             {VIS_PALETTE.map((color) => (
-              <span key={color} style={{ width: 24, height: "100%", background: color }} />
+              <span
+                key={color}
+                style={{ width: 24, height: "100%", background: color }}
+              />
             ))}
           </div>
           <span>{effectiveLayer.visMax.toExponential(2)}</span>
@@ -1020,7 +1058,8 @@ export default function FleetMap() {
               />
             )}
             {riskEvents.map((ev) => {
-              const style = RISK_EVENT_STYLE[ev.event_type] || DEFAULT_EVENT_STYLE;
+              const style =
+                RISK_EVENT_STYLE[ev.event_type] || DEFAULT_EVENT_STYLE;
               return (
                 <CircleMarker
                   key={ev.event_id}
@@ -1034,7 +1073,8 @@ export default function FleetMap() {
                   }}
                 >
                   <Tooltip direction="top">
-                    {style.label} — {new Date(ev.occurred_at).toLocaleString("vi-VN")}
+                    {style.label} —{" "}
+                    {new Date(ev.occurred_at).toLocaleString("vi-VN")}
                   </Tooltip>
                 </CircleMarker>
               );
