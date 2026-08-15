@@ -323,6 +323,35 @@ export default function WaitingScreen() {
     return () => loop.stop();
   }, [ready]);
 
+  // Nhip "tho" nhe cho badge ETA - chi chay khi CHUA ready (dang cho xe),
+  // dung y het pattern haloAnim o tren de nhat quan code style trong file.
+  const etaPulseAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (ready) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(etaPulseAnim, {
+          toValue: 1,
+          duration: 1100,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(etaPulseAnim, {
+          toValue: 0,
+          duration: 1100,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [ready]);
+  const etaPulseScale = etaPulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.04],
+  });
+
   const haloOuterScale = haloAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [0.9, 1.25],
@@ -431,6 +460,75 @@ export default function WaitingScreen() {
     );
   }, [tripId]);
 
+  // Hieu ung "loe sang luot qua" tren nut Huy - chay lap: dung 1.2s, quet
+  // 0.8s, roi reset tuc thi (duration 0) de lap lai tu dau, khong giat cuc.
+  // Hieu ung "loe sang luot qua" tren nut Huy - random 1 trong 4 huong
+  // (trai->phai, phai->trai, tren->duoi, duoi->tren) MOI CHU KY, khong lap
+  // lai co dinh 1 huong nhu ban truoc. Dung vong lap THU CONG (khong phai
+  // Animated.loop) vi can doi huong ngau nhien truoc moi lan chay.
+  const GLEAM_DIRECTIONS = [
+    {
+      axis: "x",
+      rotate: "20deg",
+      range: [-60, 160],
+      barStyle: { width: 24, top: -20, bottom: -20 },
+    },
+    {
+      axis: "x",
+      rotate: "-20deg",
+      range: [160, -60],
+      barStyle: { width: 24, top: -20, bottom: -20 },
+    },
+    {
+      axis: "y",
+      rotate: "0deg",
+      range: [-30, 46],
+      barStyle: { height: 18, left: -20, right: -20 },
+    },
+    {
+      axis: "y",
+      rotate: "0deg",
+      range: [46, -30],
+      barStyle: { height: 18, left: -20, right: -20 },
+    },
+  ];
+  function pickRandomGleamDir() {
+    return GLEAM_DIRECTIONS[
+      Math.floor(Math.random() * GLEAM_DIRECTIONS.length)
+    ];
+  }
+
+  const cancelGleamAnim = useRef(new Animated.Value(0)).current;
+  const [gleamDir, setGleamDir] = useState(pickRandomGleamDir);
+
+  useEffect(() => {
+    let cancelled = false;
+    function runCycle() {
+      if (cancelled) return;
+      setGleamDir(pickRandomGleamDir());
+      cancelGleamAnim.setValue(0);
+      Animated.sequence([
+        Animated.delay(1200),
+        Animated.timing(cancelGleamAnim, {
+          toValue: 1,
+          duration: 800,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]).start(({ finished }) => {
+        if (finished && !cancelled) runCycle();
+      });
+    }
+    runCycle();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const cancelGleamTranslate = cancelGleamAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: gleamDir.range,
+  });
   return (
     <View style={styles.container}>
       <Animated.View
@@ -455,6 +553,7 @@ export default function WaitingScreen() {
           <>
             <View style={styles.titleWrapper}>
               <Animated.View
+                pointerEvents="none"
                 style={[
                   styles.burstWrapper,
                   { opacity: burstOpacity, transform: [{ scale: burstScale }] },
@@ -493,28 +592,50 @@ export default function WaitingScreen() {
         ) : (
           <>
             <Text style={styles.title}>Xe đang trên đường tới chỗ bạn...</Text>
-            <Text style={styles.subtitle}>
-              {etaLabel
-                ? `Dự kiến ${etaLabel} 🦆`
-                : "Vui lòng đợi trong giây lát 🦆"}
-            </Text>
+            <Animated.View
+              style={[
+                styles.etaPill,
+                { transform: [{ scale: etaPulseScale }] },
+              ]}
+            >
+              <Ionicons name="time-outline" size={16} color="#2563eb" />
+              <Text style={styles.etaPillText}>
+                {etaLabel ? `Dự kiến ${etaLabel}` : "Đang tính thời gian..."} 🦆
+              </Text>
+            </Animated.View>
           </>
         )}
 
         {!hydrating && (
           <TouchableOpacity
-            style={styles.cancelLink}
+            style={styles.cancelBtn}
             onPress={handleCancel}
             disabled={cancelling}
             hitSlop={8}
           >
-            <Text style={styles.cancelLinkText}>
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.cancelGleam,
+                gleamDir.barStyle,
+                {
+                  transform: [
+                    { rotate: gleamDir.rotate },
+                    gleamDir.axis === "x"
+                      ? { translateX: cancelGleamTranslate }
+                      : { translateY: cancelGleamTranslate },
+                  ],
+                },
+              ]}
+            />
+            <Ionicons name="close-circle-outline" size={16} color="#ef4444" />
+            <Text style={styles.cancelBtnText}>
               {cancelling ? "Đang huỷ..." : "Huỷ chuyến này"}
             </Text>
           </TouchableOpacity>
         )}
 
-        <View style={styles.dividerHaloContainer}>
+        <View style={styles.dividerHaloContainer} pointerEvents="box-none">
           <Animated.View
             style={[
               styles.haloRingFar,
@@ -669,12 +790,37 @@ const styles = StyleSheet.create({
     borderRadius: 30,
   },
   startBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
-  cancelLink: { marginTop: 4, padding: 4 },
-  cancelLinkText: {
-    fontSize: 12,
-    color: "#ef4444",
-    textDecorationLine: "underline",
+  etaPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#eff6ff",
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    marginTop: 4,
   },
+  etaPillText: { fontSize: 13, fontWeight: "600", color: "#2563eb" },
+  cancelBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#fecaca",
+    backgroundColor: "#fef2f2",
+    overflow: "hidden",
+  },
+  cancelGleam: {
+    position: "absolute",
+    backgroundColor: "rgba(255,255,255,0.6)",
+  },
+  cancelBtnText: { fontSize: 12, fontWeight: "600", color: "#ef4444" },
   titleWrapper: {
     width: 280,
     height: 90,

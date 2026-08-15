@@ -21,6 +21,7 @@ import {
   rateTrip,
   getAqiHeatmap,
   simulateLaneDrift,
+  getTripRoast,
 } from "../../../src/api/driverTrips";
 import { WebView } from "react-native-webview";
 import { AQI_HEATMAP_HTML } from "../../../src/webview/aqiHeatmapHtml";
@@ -29,6 +30,7 @@ import VehicleIcon from "../../../src/components/VehicleIcon";
 import { useTrip } from "../../../src/context/TripContext";
 import type { RiskScore, TripSummary, VehicleType } from "../../../src/types";
 import RiskRadarChart from "../../../src/components/RiskRadarChart";
+import AiRoastBubble from "../../../src/components/AiRoastBubble";
 import { buildRiskBreakdown } from "../../../src/utils/riskBreakdown";
 import { Accelerometer } from "expo-sensors";
 import { computeBearing, computeDistanceMeters } from "../../../src/utils/geo";
@@ -120,6 +122,12 @@ export default function TripScreen() {
   // Mac dinh thu gon (chi hien badge nhu truoc) - bam moi mo radar
   // breakdown, tranh Modal ket qua qua rop thong tin ngay tu dau.
   const [breakdownExpanded, setBreakdownExpanded] = useState(false);
+  // Cau nhan xet AI - null = chua fetch (se fallback ve cau tinh trong
+  // buildRiskBreakdown neu fetch cuoi cung that bai / khong goi duoc mang
+  // toi backend). Tach rieng loading de biet luc nao dang cho vs da xong
+  // ma khong co ket qua.
+  const [aiComment, setAiComment] = useState<string | null>(null);
+  const [aiCommentLoading, setAiCommentLoading] = useState(false);
   const [rating, setRating] = useState(0);
   const [ratingSubmitting, setRatingSubmitting] = useState(false);
   // Diem xuat phat cho route mo phong - lay 1 lan qua getCurrentPositionAsync
@@ -481,6 +489,21 @@ export default function TripScreen() {
   // Gửi telemetry định kỳ lên backend - khong quan tam nguon (GPS that
   // hay route mo phong), luon doc tu lastCoordsRef (applyPositionUpdate
   // ghi vao do cho ca 2 nguon).
+  // Fetch cau nhan xet AI CHI 1 LAN dau tien khi mo breakdown (khong fetch
+  // lai moi lan dong/mo lai) - tranh spam API tra phi/free-tier vo ich.
+  useEffect(() => {
+    if (!breakdownExpanded || !result?.summary || !tripId) return;
+    if (aiComment !== null || aiCommentLoading) return; // da fetch roi
+    setAiCommentLoading(true);
+    getTripRoast(tripId)
+      .then((res) => setAiComment(res.comment))
+      .catch((e) => {
+        console.error("[roast] fetch failed, fallback ve cau tinh:", e.message);
+        setAiComment(null); // giu null - JSX se tu fallback ve finalComment tinh
+      })
+      .finally(() => setAiCommentLoading(false));
+  }, [breakdownExpanded, result?.summary, tripId]);
+
   useEffect(() => {
     if (!tripId) return;
     telemetryTimerRef.current = setInterval(() => {
@@ -1042,11 +1065,11 @@ export default function TripScreen() {
                       axes={axes}
                       color={RISK_COLOR[riskLevel ?? "safe"]}
                     />
-                    {finalComment ? (
-                      <Text style={styles.breakdownFinalComment}>
-                        {finalComment}
-                      </Text>
-                    ) : null}
+                    <AiRoastBubble
+                      comment={aiComment ?? (aiCommentLoading ? null : finalComment)}
+                      loading={aiCommentLoading}
+                      color={RISK_COLOR[riskLevel ?? "safe"]}
+                    />
                     {axes.map((a) => (
                       <View key={a.key} style={styles.breakdownRow}>
                         <View style={styles.breakdownRowHeader}>

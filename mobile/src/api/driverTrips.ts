@@ -111,6 +111,13 @@ export async function setRouteMode(
   return data;
 }
 
+export async function getTripRoast(
+  tripId: string,
+): Promise<{ comment: string; source: string }> {
+  const { data } = await apiClient.get(`/api/driver/trips/${tripId}/roast`);
+  return data;
+}
+
 export async function cancelTrip(
   tripId: string,
 ): Promise<{ tripId: string; status: string }> {
