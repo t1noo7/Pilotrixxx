@@ -408,12 +408,6 @@ driverTripsRouter.post('/trips/:id/simulate-lane-drift', async (req, res) => {
 
     const client = await pool.connect();
     try {
-        // SUA LOI 500: ban truoc lay nham vehicle_id/driver_id tu
-        // telemetry_raw - bang nay KHONG co 2 cot do (doi chieu lai
-        // tripSummaryService.js: SELECT chi co latitude/longitude/
-        // position_valid/speed/accel_x/accel_y/accel_z/brake_intensity).
-        // driver_id/vehicle_id phai lay tu bang trips, dung nhu comment
-        // ruleEngine.js da ghi ro "driver_id (truy ra tu trips)".
         const tripRes = await client.query(
             `SELECT vehicle_id, driver_id FROM trips WHERE trip_id = $1`,
             [tripId]
@@ -424,7 +418,7 @@ driverTripsRouter.post('/trips/:id/simulate-lane-drift', async (req, res) => {
         const { vehicle_id: vehicleId, driver_id: driverId } = tripRes.rows[0];
 
         const telemetryRes = await client.query(
-            `SELECT telemetry_id
+            `SELECT id
              FROM telemetry_raw
              WHERE trip_id = $1
              ORDER BY ts DESC
