@@ -225,33 +225,64 @@ driverTripsRouter.post('/trips/:id/activate', async (req, res) => {
  * driver đổi ý muốn chọn xe khác, KHÔNG cần đợi hết
  * PENDING_TRIP_TIMEOUT_MINUTES/PICKUP_WAIT_TIMEOUT_MINUTES như 2 nhánh
  * tự động ở GET /trips/current.
+ *
+ * QUAN TRỌNG: khi xe đang trên đường tới đón (đã kích hoạt reposition bên
+ * Python qua 'vehicle:requested'), có 1 trip RIÊNG với scenario='reposition'
+ * đang chạy song song trên CÙNG vehicle_id (khác trip_id với trip 'manual'
+ * này - xem comment trips.js dòng ~100-107 về constraint miễn trừ). Route
+ * này abort CẢ 2 - không chỉ trip 'manual' - để DB không còn hiện
+ * reposition 'ongoing' treo mãi. LƯU Ý: đây chỉ là dọn dẹp phía DB; CHƯA
+ * chắc dừng được xe đang chạy thật bên Python (xem ghi chú fleetControl
+ * bên dưới, giống lỗ hổng có sẵn ở 2 nhánh auto-abort trong GET
+ * /trips/current - không phải bug riêng của route này).
  */
 driverTripsRouter.post('/trips/:id/cancel', async (req, res) => {
     const tripId = parseInt(req.params.id, 10);
     if (Number.isNaN(tripId)) return res.status(400).json({ error: 'tripId không hợp lệ' });
 
+    const client = await pool.connect();
     try {
-        const result = await pool.query(
+        const manualRes = await client.query(
             `UPDATE trips SET status = 'aborted', ended_at = now()
              WHERE trip_id = $1 AND driver_id = $2 AND status = 'pending'
              RETURNING trip_id, vehicle_id`,
             [tripId, req.driver.driverId]
         );
-        if (result.rows.length === 0) {
+        if (manualRes.rows.length === 0) {
             return res.status(404).json({
                 error: `Chuyến #${tripId} không tồn tại, không thuộc về bạn, hoặc không còn ở trạng thái chờ`,
             });
         }
-        const { vehicle_id: vehicleId } = result.rows[0];
+        const { vehicle_id: vehicleId } = manualRes.rows[0];
 
-        // Giống 2 nhánh tự động - báo ngay dashboard admin xe đã rời trạng
-        // thái "incoming" (tránh chờ refetch 30s bên FleetMap).
+        // Abort luon reposition trip dang chay song song tren cung xe (neu co)
+        const repoRes = await client.query(
+            `UPDATE trips SET status = 'aborted', ended_at = now()
+             WHERE vehicle_id = $1 AND scenario = 'reposition' AND status IN ('ongoing', 'pending')
+             RETURNING trip_id`,
+            [vehicleId]
+        );
+
         io.emit('trip:completed', { tripId, vehicleId, status: 'aborted' });
+
+        // Da xac nhan qua run_fleet.py: on_returned() gio DA THUC SU set()
+        // dung stop_event (truoc day chi print log, khong lam gi ca - xem
+        // fix rieng trong run_fleet.py + simulator.py). Chi can vehicleId
+        // la du, Python khong dung tripId trong payload nay.
+        if (repoRes.rows.length > 0) {
+            const repoTripId = repoRes.rows[0].trip_id;
+            fleetControlNamespace.emit('vehicle:returned', { vehicleId, tripId: repoTripId });
+            console.log(
+                `[POST /driver/trips/:id/cancel] Also aborted reposition trip #${repoTripId} for vehicle ${vehicleId}`
+            );
+        }
 
         res.json({ tripId, status: 'aborted' });
     } catch (err) {
         console.error('[POST /driver/trips/:id/cancel] Error:', err.message);
         res.status(500).json({ error: 'Internal server error' });
+    } finally {
+        client.release();
     }
 });
 
@@ -377,8 +408,23 @@ driverTripsRouter.post('/trips/:id/simulate-lane-drift', async (req, res) => {
 
     const client = await pool.connect();
     try {
+        // SUA LOI 500: ban truoc lay nham vehicle_id/driver_id tu
+        // telemetry_raw - bang nay KHONG co 2 cot do (doi chieu lai
+        // tripSummaryService.js: SELECT chi co latitude/longitude/
+        // position_valid/speed/accel_x/accel_y/accel_z/brake_intensity).
+        // driver_id/vehicle_id phai lay tu bang trips, dung nhu comment
+        // ruleEngine.js da ghi ro "driver_id (truy ra tu trips)".
+        const tripRes = await client.query(
+            `SELECT vehicle_id, driver_id FROM trips WHERE trip_id = $1`,
+            [tripId]
+        );
+        if (tripRes.rows.length === 0) {
+            return res.status(404).json({ error: `Trip ${tripId} khong ton tai` });
+        }
+        const { vehicle_id: vehicleId, driver_id: driverId } = tripRes.rows[0];
+
         const telemetryRes = await client.query(
-            `SELECT telemetry_id, vehicle_id, driver_id
+            `SELECT telemetry_id
              FROM telemetry_raw
              WHERE trip_id = $1
              ORDER BY ts DESC
@@ -390,7 +436,7 @@ driverTripsRouter.post('/trips/:id/simulate-lane-drift', async (req, res) => {
                 error: 'Chua co telemetry nao cho trip nay - doi vai giay roi thu lai',
             });
         }
-        const t = telemetryRes.rows[0];
+        const telemetryId = telemetryRes.rows[0].telemetry_id;
 
         // severity 'high' co chu dich (khong phai mac dinh) - vi day la
         // event dang demo chu dong bam, muon no hien alert realtime tren
@@ -399,7 +445,7 @@ driverTripsRouter.post('/trips/:id/simulate-lane-drift', async (req, res) => {
             `INSERT INTO driver_events (trip_id, telemetry_id, event_type, severity, metric_value, occurred_at)
              VALUES ($1, $2, 'lane_drift', 'high', $3, now())
              RETURNING event_id`,
-            [tripId, t.telemetry_id, JSON.stringify({ simulated: true })]
+            [tripId, telemetryId, JSON.stringify({ simulated: true })]
         );
         const eventId = eventRes.rows[0].event_id;
 
@@ -407,13 +453,13 @@ driverTripsRouter.post('/trips/:id/simulate-lane-drift', async (req, res) => {
         await client.query(
             `INSERT INTO alerts (trip_id, vehicle_id, driver_id, event_id, event_type, severity, message, occurred_at)
              VALUES ($1, $2, $3, $4, 'lane_drift', 'high', $5, now())`,
-            [tripId, t.vehicle_id, t.driver_id, eventId, message]
+            [tripId, vehicleId, driverId, eventId, message]
         );
 
         io.emit('alert', {
             tripId,
-            vehicleId: t.vehicle_id,
-            driverId: t.driver_id,
+            vehicleId,
+            driverId,
             eventType: 'lane_drift',
             severity: 'high',
             message,
@@ -428,6 +474,161 @@ driverTripsRouter.post('/trips/:id/simulate-lane-drift', async (req, res) => {
         res.status(500).json({ error: 'Khong the ghi nhan su kien lan lan' });
     } finally {
         client.release();
+    }
+});
+
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const AI_ROAST_TIMEOUT_MS = 5000; // qua 5s coi như fail, chuyển fallback -
+// KHÔNG để driver chờ AI chậm quá lâu, breakdown UI phải mượt.
+
+// Câu dự phòng NẾU CẢ Gemini lẫn Groq đều fail (mất mạng, het quota, sai
+// key...) - đảm bảo route này KHÔNG BAO GIỜ trả lỗi trắng cho driver.
+const STATIC_ROAST_FALLBACK = {
+    safe: [
+        'Đi vậy mà cũng gọi là lái xe à, êm như ru ngủ luôn.',
+        'Hồ sơ đẹp thế này chắc chưa từng biết ga là gì.',
+    ],
+    medium: [
+        'Cũng tạm, nhưng chưa đủ để khoe với hội đồng đâu nha.',
+        'Nửa nạc nửa mỡ, hôm nào hứng lên hẵng lái cho tử tế.',
+    ],
+    dangerous: [
+        'Chuyến này mà chấm điểm thật chắc cũng phải mời phụ huynh.',
+        'Lái kiểu này xe nào cũng sợ, kể cả xe mô hình.',
+    ],
+};
+
+function pickStaticRoast(riskLevel) {
+    const pool = STATIC_ROAST_FALLBACK[riskLevel] || STATIC_ROAST_FALLBACK.safe;
+    return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function buildRoastPrompt(summary, riskLevel) {
+    return (
+        `Ban la 1 AI hai huoc, hoi lao toet, ca khia nhe nhung KHONG chui tuc, ` +
+        `KHONG xuc pham nang, dang cham diem 1 chuyen di xe cua tai xe app cho ` +
+        `thue xe o Viet Nam. Du lieu chuyen:\n` +
+        `- Phanh gap: ${summary.hard_brake_per_min} lan/phut\n` +
+        `- Tang toc dot ngot: ${summary.rapid_accel_per_min} lan/phut\n` +
+        `- Cua gat: ${summary.sharp_turn_per_min} lan/phut\n` +
+        `- Vuot toc: ${Math.round((summary.overspeed_ratio || 0) * 100)}% thoi gian\n` +
+        `- Muc rui ro tong: ${riskLevel}\n\n` +
+        `Viet DUNG 1 cau tieng Viet (duoi 30 tu), giong ca khia/cham biem di ` +
+        `dom, khong chui tuc, chi dua nhe ve phong cach lai xe. CHI tra ve ` +
+        `dung cau do, khong thich, khong giai thich them.`
+    );
+}
+
+async function callGemini(prompt) {
+    if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY chua duoc cau hinh');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), AI_ROAST_TIMEOUT_MS);
+    try {
+        const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+                signal: controller.signal,
+            }
+        );
+        if (!res.ok) throw new Error(`Gemini HTTP ${res.status}`);
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text || !text.trim()) throw new Error('Gemini tra ve rong');
+        return text.trim();
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+async function callGroq(prompt) {
+    if (!GROQ_API_KEY) throw new Error('GROQ_API_KEY chua duoc cau hinh');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), AI_ROAST_TIMEOUT_MS);
+    try {
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${GROQ_API_KEY}`,
+            },
+            body: JSON.stringify({
+                model: 'llama-3.3-70b-versatile',
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 80,
+                temperature: 0.9,
+            }),
+            signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(`Groq HTTP ${res.status}`);
+        const data = await res.json();
+        const text = data?.choices?.[0]?.message?.content;
+        if (!text || !text.trim()) throw new Error('Groq tra ve rong');
+        return text.trim();
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+/**
+ * GET /api/driver/trips/:id/roast
+ * Sinh 1 câu nhận xét châm biếm cho chuyến vừa xong - thử Gemini trước,
+ * fail thì Groq, fail nốt thì rơi về câu tĩnh có sẵn (KHÔNG BAO GIỜ trả
+ * lỗi 500 cho driver vì đây chỉ là chi tiết vui, không phải core feature -
+ * risk_score/risk_level thật vẫn tính bằng ML model như cũ, route này
+ * không ảnh hưởng gì tới đó).
+ */
+driverTripsRouter.get('/trips/:id/roast', async (req, res) => {
+    const tripId = parseInt(req.params.id, 10);
+    if (Number.isNaN(tripId)) {
+        return res.status(400).json({ error: 'tripId khong hop le' });
+    }
+
+    try {
+        const summaryRes = await pool.query(
+            `SELECT hard_brake_per_min, rapid_accel_per_min, sharp_turn_per_min, overspeed_ratio
+             FROM trip_summary WHERE trip_id = $1`,
+            [tripId]
+        );
+        if (summaryRes.rows.length === 0) {
+            return res.status(404).json({ error: `Chua co trip_summary cho trip ${tripId}` });
+        }
+        const summary = summaryRes.rows[0];
+
+        const riskRes = await pool.query(
+            `SELECT final_risk_level FROM risk_scores WHERE trip_id = $1`,
+            [tripId]
+        );
+        const riskLevel = riskRes.rows[0]?.final_risk_level || 'safe';
+
+        const prompt = buildRoastPrompt(summary, riskLevel);
+
+        let comment;
+        let source;
+        try {
+            comment = await callGemini(prompt);
+            source = 'gemini';
+        } catch (e1) {
+            console.error(`[roast] Gemini failed trip ${tripId}:`, e1.message);
+            try {
+                comment = await callGroq(prompt);
+                source = 'groq';
+            } catch (e2) {
+                console.error(`[roast] Groq failed trip ${tripId}:`, e2.message);
+                comment = pickStaticRoast(riskLevel);
+                source = 'static-fallback';
+            }
+        }
+
+        res.json({ comment, source });
+    } catch (err) {
+        console.error(`[GET /driver/trips/:id/roast] Error trip ${tripId}:`, err.message);
+        // Ngay ca loi DB cung khong duoc de driver thay man hinh trang -
+        // van tra ve 1 cau tinh cho chac, kem code loi de debug rieng.
+        res.json({ comment: pickStaticRoast('safe'), source: 'error-fallback' });
     }
 });
 
