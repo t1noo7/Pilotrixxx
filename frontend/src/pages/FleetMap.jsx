@@ -18,13 +18,10 @@ import { SATELLITE_LAYERS, VIS_PALETTE } from "./satelliteLayers.js";
 // Màu + nhãn cho lớp "Driving Risk" - marker sự kiện nguy hiểm trên bản đồ.
 // event_type phải khớp đúng giá trị enum trong DB (bảng driver_events).
 const RISK_EVENT_STYLE = {
-  hard_brake: { color: "#f87171", label: "Phanh gấp" },
-  overspeed: { color: "#fb923c", label: "Vượt tốc độ" },
+  hard_brake:  { color: "#f87171", label: "Phanh gấp" },
+  overspeed:   { color: "#fb923c", label: "Vượt tốc độ" },
   rapid_accel: { color: "#c084fc", label: "Tăng tốc đột ngột" },
-  sharp_turn: { color: "#fbbf24", label: "Cua gắt" },
-  // Xanh dương - chưa dùng trong 4 màu cũ (đỏ/cam/tím/vàng), đủ tương
-  // phản để phân biệt trên bản đồ.
-  lane_drift: { color: "#38bdf8", label: "Lấn làn" },
+  sharp_turn:  { color: "#fbbf24", label: "Cua gắt" },
 };
 const DEFAULT_EVENT_STYLE = { color: "#94a3b8", label: "Sự kiện khác" };
 
@@ -609,6 +606,52 @@ export default function FleetMap() {
   const [loading, setLoading] = useState(true);
   const [activePollutant, setActivePollutant] = useState(null); // "NO2" | "CO" | "SO2" | null
   const [riskEvents, setRiskEvents] = useState([]);
+  // Trang thai lop ve tinh live theo tung chat khi: { NO2: { status: "loading"|"live"|"static", imageUrl, visMin, visMax, bounds } }
+  const [liveOverride, setLiveOverride] = useState({});
+
+  // Bam chon 1 chat khi: hien ANH TINH co san NGAY LAP TUC (khong bao gio
+  // trang man hinh), dong thoi thu goi GEE live ngam - neu thanh cong thi
+  // thay the bang anh moi nhat, that bai (timeout/quota) thi GIU NGUYEN
+  // anh tinh, khong bao loi ra UI - dam bao demo truoc hoi dong khong bao
+  // gio "vo" du mang/GEE co truc trac.
+  function selectPollutant(key) {
+    setActivePollutant(key);
+    if (!key) return;
+    setLiveOverride((prev) => ({ ...prev, [key]: { status: "loading" } }));
+    apiClient
+      .get(`/api/dashboard/satellite-layer/${key}`)
+      .then((res) => {
+        const d = res.data;
+        setLiveOverride((prev) => ({
+          ...prev,
+          [key]: {
+            status: "live",
+            imageUrl: d.image_url,
+            visMin: d.vis_min,
+            visMax: d.vis_max,
+            bounds: d.bounds,
+          },
+        }));
+      })
+      .catch((err) => {
+        console.warn(`[satellite-layer:${key}] live fetch that bai, dung anh tinh:`, err.message);
+        setLiveOverride((prev) => ({ ...prev, [key]: { status: "static" } }));
+      });
+  }
+
+  // Lop dang hien thi thuc te: neu da fetch live thanh cong thi dung du
+  // lieu live, con lai (dang loading hoac fetch fail) dung anh tinh co
+  // san trong satelliteLayers.js - luon co gi do de hien, khong bao gio rong.
+  const effectiveLayer = (() => {
+    if (!activePollutant) return null;
+    const live = liveOverride[activePollutant];
+    const staticLayer = SATELLITE_LAYERS[activePollutant];
+    if (live?.status === "live") {
+      return { ...staticLayer, imageUrl: live.imageUrl, visMin: live.visMin, visMax: live.visMax, bounds: live.bounds };
+    }
+    return staticLayer;
+  })();
+  const liveStatus = activePollutant ? liveOverride[activePollutant]?.status : null;
 
   // Su kien nguy hiem tong hop 7 ngay gan nhat - du lieu tinh, khong can
   // poll realtime nhu vi tri xe, chi fetch 1 lan luc mount la du.
@@ -762,7 +805,7 @@ export default function FleetMap() {
                 fontStyle: "italic",
               }}
             >
-              {idleCount} xe vừa xong chặng, đang ngồi chơi xơi nước chờ cuốc
+              💺 {idleCount} xe vừa xong chặng, đang ngồi chơi xơi nước chờ cuốc
               mới...
             </p>
           );
@@ -780,39 +823,27 @@ export default function FleetMap() {
           marginBottom: 12,
         }}
       >
-        <span style={{ fontWeight: 600 }}>Lớp vệ tinh:</span>
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            cursor: "pointer",
-          }}
-        >
+        <span style={{ fontWeight: 600 }}>🛰️ Lớp vệ tinh:</span>
+        <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
           <input
             type="radio"
             name="satellite-layer"
             checked={activePollutant === null}
-            onChange={() => setActivePollutant(null)}
+            onChange={() => selectPollutant(null)}
           />
           Tắt
         </label>
         {Object.entries(SATELLITE_LAYERS).map(([key, layer]) => (
           <label
             key={key}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-              cursor: "pointer",
-            }}
+            style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}
             title={layer.label}
           >
             <input
               type="radio"
               name="satellite-layer"
               checked={activePollutant === key}
-              onChange={() => setActivePollutant(key)}
+              onChange={() => selectPollutant(key)}
             />
             {key}
           </label>
@@ -822,12 +853,25 @@ export default function FleetMap() {
             Sentinel-5P/TROPOMI · {SATELLITE_LAYERS[activePollutant].label}
           </span>
         )}
+        {liveStatus === "loading" && (
+          <span title="Đang gọi ảnh mới nhất từ Google Earth Engine...">⏳ Đang cập nhật...</span>
+        )}
+        {liveStatus === "live" && (
+          <span style={{ color: "#22c55e" }} title="Ảnh vừa gọi trực tiếp từ Earth Engine">
+            🟢 Live
+          </span>
+        )}
+        {liveStatus === "static" && (
+          <span title="Không gọi được ảnh mới - đang dùng ảnh dự phòng đã lưu sẵn">
+            📦 Ảnh dự phòng
+          </span>
+        )}
         {riskEvents.length > 0 && (
           <span>• {riskEvents.length} sự kiện nguy hiểm (7 ngày qua)</span>
         )}
       </div>
 
-      {activePollutant && (
+      {effectiveLayer && (
         <div
           className="pollutant-scale-legend"
           style={{
@@ -839,30 +883,15 @@ export default function FleetMap() {
             marginBottom: 16,
           }}
         >
-          <span>
-            {SATELLITE_LAYERS[activePollutant].visMin.toExponential(2)}
-          </span>
-          <div
-            style={{
-              display: "flex",
-              height: 12,
-              borderRadius: 3,
-              overflow: "hidden",
-            }}
-          >
+          <span>{effectiveLayer.visMin.toExponential(2)}</span>
+          <div style={{ display: "flex", height: 12, borderRadius: 3, overflow: "hidden" }}>
             {VIS_PALETTE.map((color) => (
-              <span
-                key={color}
-                style={{ width: 24, height: "100%", background: color }}
-              />
+              <span key={color} style={{ width: 24, height: "100%", background: color }} />
             ))}
           </div>
-          <span>
-            {SATELLITE_LAYERS[activePollutant].visMax.toExponential(2)}
-          </span>
+          <span>{effectiveLayer.visMax.toExponential(2)}</span>
           <span style={{ marginLeft: 4 }}>
-            ({SATELLITE_LAYERS[activePollutant].unit}, thang màu theo phân vị
-            2-98% dữ liệu thật)
+            ({effectiveLayer.unit}, thang màu theo phân vị 2-98% dữ liệu thật)
           </span>
         </div>
       )}
@@ -983,16 +1012,15 @@ export default function FleetMap() {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               attribution="&copy; OpenStreetMap contributors"
             />
-            {activePollutant && (
+            {effectiveLayer && (
               <ImageOverlay
-                url={SATELLITE_LAYERS[activePollutant].imageUrl}
-                bounds={SATELLITE_LAYERS[activePollutant].bounds}
+                url={effectiveLayer.imageUrl}
+                bounds={effectiveLayer.bounds}
                 opacity={0.45}
               />
             )}
             {riskEvents.map((ev) => {
-              const style =
-                RISK_EVENT_STYLE[ev.event_type] || DEFAULT_EVENT_STYLE;
+              const style = RISK_EVENT_STYLE[ev.event_type] || DEFAULT_EVENT_STYLE;
               return (
                 <CircleMarker
                   key={ev.event_id}
@@ -1006,8 +1034,7 @@ export default function FleetMap() {
                   }}
                 >
                   <Tooltip direction="top">
-                    {style.label} —{" "}
-                    {new Date(ev.occurred_at).toLocaleString("vi-VN")}
+                    {style.label} — {new Date(ev.occurred_at).toLocaleString("vi-VN")}
                   </Tooltip>
                 </CircleMarker>
               );

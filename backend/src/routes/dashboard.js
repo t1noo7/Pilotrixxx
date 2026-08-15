@@ -1,6 +1,12 @@
 import express from 'express';
 import { pool } from '../db.js';
 
+// Cache in-memory cho ket qua goi GEE live - tranh goi lai GEE moi lan
+// bam chon lop (chi 3 lop, cache theo ten). TTL 6 tieng - du liệu ve
+// tinh khong doi nhanh hon muc do, khong can goi lien tuc.
+const SATELLITE_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const satelliteCache = {}; // { NO2: { data, fetchedAt }, CO: {...}, SO2: {...} }
+
 // Tach thanh 3 router rieng (thay vi 1 router dung chung mount o 3 tien to
 // khac nhau) - fix bug path bi lap doi (vd /api/risk-scores/risk-scores/compute)
 // do route ben trong da co san tien to trung voi mount prefix.
@@ -76,6 +82,61 @@ dashboardRouter.get('/risk-events', async (req, res) => {
 });
 
 /**
+ * GET /api/dashboard/satellite-layer/:pollutant
+ * Goi LIVE Google Earth Engine lay anh moi nhat cho 1 chat khi
+ * (NO2/CO/SO2) - dung venv-gis RIENG BIET voi venv ML (tranh dependency
+ * conflict voi sklearn). Co cache 6 tieng de khong goi GEE qua thuong
+ * xuyen, va timeout ro rang de frontend biet khi nao fallback ve anh
+ * tinh co san trong public/satellite/.
+ */
+dashboardRouter.get('/satellite-layer/:pollutant', async (req, res) => {
+    const pollutant = String(req.params.pollutant || '').toUpperCase();
+    if (!['NO2', 'CO', 'SO2'].includes(pollutant)) {
+        return res.status(400).json({ error: 'pollutant phai la NO2, CO hoac SO2' });
+    }
+
+    const cached = satelliteCache[pollutant];
+    if (cached && Date.now() - cached.fetchedAt < SATELLITE_CACHE_TTL_MS) {
+        return res.json({ ...cached.data, cached: true });
+    }
+
+    const { execFile } = await import('child_process');
+    const { fileURLToPath } = await import('url');
+    const path = await import('path');
+
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    // venv-gis va simulator/ TACH BIET hoan toan voi venv ML (xem Dockerfile)
+    const SCRIPT = path.resolve(__dirname, '..', '..', '..', 'simulator', 'gee_fetch_live.py');
+    const PYTHON = path.resolve(__dirname, '..', '..', '..', 'venv-gis', 'bin', 'python');
+
+    execFile(
+        PYTHON,
+        [SCRIPT, '--pollutant', pollutant],
+        { timeout: 25_000 }, // demo truoc hoi dong khong the doi qua lau
+        (err, stdout, stderr) => {
+            if (err) {
+                console.error(`[satellite-layer:${pollutant}] Error:`, stderr || err.message);
+                return res.status(503).json({
+                    error: 'Khong lay duoc anh ve tinh live (timeout/quota/mang) - dung anh tinh du phong',
+                    fallback: true,
+                });
+            }
+            try {
+                const result = JSON.parse(stdout.trim());
+                if (result.error) {
+                    return res.status(500).json({ error: result.error, fallback: true });
+                }
+                satelliteCache[pollutant] = { data: result, fetchedAt: Date.now() };
+                res.json({ ...result, cached: false });
+            } catch {
+                console.error(`[satellite-layer:${pollutant}] JSON parse fail:`, stdout);
+                res.status(500).json({ error: 'Loi doc ket qua tu Python', fallback: true });
+            }
+        }
+    );
+});
+
+/**
  * GET /api/dashboard/stats
  * Thống kê tổng quan (nghiệp vụ)
  */
@@ -114,9 +175,9 @@ dashboardRouter.get('/stats', async (req, res) => {
         ]);
 
         res.json({
-            trips: tripsRes.rows[0],
-            alerts: alertsRes.rows[0],
-            risk: riskRes.rows[0],
+            trips:    tripsRes.rows[0],
+            alerts:   alertsRes.rows[0],
+            risk:     riskRes.rows[0],
             vehicles: vehiclesRes.rows[0],
         });
     } catch (err) {
@@ -177,7 +238,7 @@ riskScoresRouter.get('/', async (req, res) => {
     const values = [];
     let idx = 1;
 
-    if (driverId) { conditions.push(`t.driver_id = $${idx++}`); values.push(parseInt(driverId)); }
+    if (driverId)  { conditions.push(`t.driver_id = $${idx++}`);  values.push(parseInt(driverId)); }
     if (vehicleId) { conditions.push(`t.vehicle_id = $${idx++}`); values.push(parseInt(vehicleId)); }
     values.push(_limit);
 
@@ -222,7 +283,7 @@ riskScoresRouter.post('/compute', async (req, res) => {
 
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     const PREDICT_PY = path.resolve(__dirname, '..', '..', '..', 'ml', 'predict.py');
-    const PYTHON = path.resolve(__dirname, '..', '..', '..', 'venv', 'bin', 'python');
+    const PYTHON     = path.resolve(__dirname, '..', '..', '..', 'venv', 'bin', 'python');
 
     try {
         const result = await new Promise((resolve, reject) => {

@@ -26,6 +26,7 @@ RUN cd backend && pnpm install --prod --frozen-lockfile
 # --- Copy code that su ---
 COPY backend ./backend
 COPY ml ./ml
+COPY simulator ./simulator
 
 # --- Tao venv Python + cai dependency ML ---
 RUN python3 -m venv venv && \
@@ -36,6 +37,16 @@ RUN python3 -m venv venv && \
 # file .csv/.pkl vao git - xem ghi chu trong .gitignore)
 RUN ./venv/bin/python ml/generate_synthetic_data.py && \
     ./venv/bin/python ml/train.py
+
+# --- Venv THU 2, TACH BIET HOAN TOAN, chi cho GEE (earthengine-api) ---
+# KHONG duoc gop chung voi venv ML o tren - earthengine-api keo theo
+# google-auth/protobuf co the doi version numpy/protobuf ma sklearn
+# dang phu thuoc, rui ro hong risk scoring dang chay that. Tach rieng
+# = zero risk cho phan ML hien co, chi la them dong lenh, khong sua
+# dong nao dang chay.
+COPY simulator/requirements-gee.txt ./simulator/requirements-gee.txt
+RUN python3 -m venv venv-gis && \
+    ./venv-gis/bin/pip install --no-cache-dir -r simulator/requirements-gee.txt
 
 WORKDIR /app/backend
 EXPOSE 3000
