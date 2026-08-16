@@ -112,7 +112,9 @@ export default function RiskRadarChart({
 
           {axes.map((axis, i) => {
             const p = pointAt(i, Math.max(axis.score, 4) / 100);
-            return <Circle key={axis.key} cx={p.x} cy={p.y} r={4} fill={color} />;
+            return (
+              <Circle key={axis.key} cx={p.x} cy={p.y} r={4} fill={color} />
+            );
           })}
         </Svg>
 

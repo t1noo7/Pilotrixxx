@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { View, Text, StyleSheet, Animated, Easing } from "react-native";
+import { View, Text, StyleSheet, Animated, Easing, Image } from "react-native";
 
 interface Props {
   comment: string | null;
@@ -76,8 +76,16 @@ export default function AiRoastBubble({ comment, loading, color = "#7c3aed" }: P
 
   return (
     <View style={styles.row}>
-      <Text style={styles.avatar}>🦆</Text>
-      <View style={[styles.bubble, { borderColor: color }]}>
+      <Image
+        source={require("../../assets/animations/duck-comment.gif")}
+        style={styles.avatarGif}
+      />
+      <View
+        style={[
+          styles.bubble,
+          { borderColor: color, backgroundColor: color + "16" },
+        ]}
+      >
         <View style={[styles.bubbleTail, { borderRightColor: color }]} />
         {loading || !comment ? (
           <LoadingDots />
@@ -101,10 +109,9 @@ const styles = StyleSheet.create({
     marginVertical: 8,
     paddingHorizontal: 4,
   },
-  avatar: { fontSize: 26, marginTop: 2 },
+  avatarGif: { width: 34, height: 34, marginTop: 2, borderRadius: 17 },
   bubble: {
     flex: 1,
-    backgroundColor: "#f9fafb",
     borderWidth: 1.5,
     borderRadius: 14,
     borderBottomLeftRadius: 2,
