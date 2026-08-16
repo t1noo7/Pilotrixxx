@@ -480,16 +480,16 @@ const AI_ROAST_TIMEOUT_MS = 5000; // qua 5s coi như fail, chuyển fallback -
 // key...) - đảm bảo route này KHÔNG BAO GIỜ trả lỗi trắng cho driver.
 const STATIC_ROAST_FALLBACK = {
     safe: [
-        'Đi vậy mà cũng gọi là lái xe à, êm như ru ngủ luôn.',
-        'Hồ sơ đẹp thế này chắc chưa từng biết ga là gì.',
+        'Đi kiểu này chán vãi, an toàn quá hoá nhạt 🙄',
+        'Ối giồi ôi lái đẹp thế, chắc chưa từng biết đạp ga mạnh tay là gì 😌',
     ],
     medium: [
-        'Cũng tạm, nhưng chưa đủ để khoe với hội đồng đâu nha.',
-        'Nửa nạc nửa mỡ, hôm nào hứng lên hẵng lái cho tử tế.',
+        'Cũng tạm, nhưng chưa đủ trình để khoe hội đồng đâu nha 😏',
+        'Nửa nạc nửa mỡ, hôm nào hứng lên hẵng lái cho tử tế đi cưng 🤏',
     ],
     dangerous: [
-        'Chuyến này mà chấm điểm thật chắc cũng phải mời phụ huynh.',
-        'Lái kiểu này xe nào cũng sợ, kể cả xe mô hình.',
+        'Chuyến này mà chấm thật chắc hội đồng phải mời phụ huynh vào 😭',
+        'Lái kiểu này xe nào cũng khiếp vía, kể cả xe mô hình 🙃',
     ],
 };
 
@@ -500,17 +500,21 @@ function pickStaticRoast(riskLevel) {
 
 function buildRoastPrompt(summary, riskLevel) {
     return (
-        `Ban la 1 AI hai huoc, hoi lao toet, ca khia nhe nhung KHONG chui tuc, ` +
-        `KHONG xuc pham nang, dang cham diem 1 chuyen di xe cua tai xe app cho ` +
-        `thue xe o Viet Nam. Du lieu chuyen:\n` +
-        `- Phanh gap: ${summary.hard_brake_per_min} lan/phut\n` +
-        `- Tang toc dot ngot: ${summary.rapid_accel_per_min} lan/phut\n` +
-        `- Cua gat: ${summary.sharp_turn_per_min} lan/phut\n` +
-        `- Vuot toc: ${Math.round((summary.overspeed_ratio || 0) * 100)}% thoi gian\n` +
-        `- Muc rui ro tong: ${riskLevel}\n\n` +
-        `Viet DUNG 1 cau tieng Viet (duoi 30 tu), giong ca khia/cham biem di ` +
-        `dom, khong chui tuc, chi dua nhe ve phong cach lai xe. CHI tra ve ` +
-        `dung cau do, khong thich, khong giai thich them.`
+        `Bạn là một AI cà khịa, đanh đá, chua ngoa, nói chuyện kiểu bạn thân ` +
+        `mất dạy hay trêu nhau - được phép chửi thề nhẹ (kiểu "vãi", "ối giồi ` +
+        `ôi", "thánh") nhưng TUYỆT ĐỐI không chửi tục nặng, không xúc phạm ` +
+        `nhân phẩm, không nói về ngoại hình/gia đình người khác. Bạn đang ` +
+        `chấm điểm 1 chuyến đi của tài xế app cho thuê xe ở Việt Nam.\n\n` +
+        `Dữ liệu chuyến:\n` +
+        `- Phanh gấp: ${summary.hard_brake_per_min} lần/phút\n` +
+        `- Tăng tốc đột ngột: ${summary.rapid_accel_per_min} lần/phút\n` +
+        `- Cua gắt: ${summary.sharp_turn_per_min} lần/phút\n` +
+        `- Vượt tốc: ${Math.round((summary.overspeed_ratio || 0) * 100)}% thời gian\n` +
+        `- Mức rủi ro tổng: ${riskLevel}\n\n` +
+        `Viết ĐÚNG 1 câu tiếng Việt CÓ DẤU ĐẦY ĐỦ (dưới 30 từ), giọng cà khịa ` +
+        `chua ngoa thật sự sắc, chèn 1-2 emoji hợp ngữ cảnh cho sinh động. ` +
+        `CHỈ trả về đúng câu đó, không thích, không giải thích thêm, không ` +
+        `để trong ngoặc kép.`
     );
 }
 
