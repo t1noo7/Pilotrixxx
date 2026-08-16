@@ -59,6 +59,45 @@ function LoadingDots() {
 
 export default function AiRoastBubble({ comment, loading, color = "#7c3aed" }: Props) {
   const popAnim = useRef(new Animated.Value(0)).current;
+  // Hieu ung "lua chay" quanh vien bubble - vien doi mau cam->vang->do
+  // lien tuc + 1 lop glow mo phia sau nhap nhay theo. Chi bat khi DA CO
+  // cau tra loi (khong chay luc dang loading, tranh roi mat).
+  const flameAnim = useRef(new Animated.Value(0)).current;
+  const showFlame = !loading && !!comment;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(flameAnim, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: false, // interpolate mau + shadow khong ho tro native driver
+        }),
+        Animated.timing(flameAnim, {
+          toValue: 0,
+          duration: 900,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: false,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+
+  const flameColor = flameAnim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: ["#f97316", "#facc15", "#ef4444"],
+  });
+  const flameGlowOpacity = flameAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 0.6],
+  });
+  const flameGlowScale = flameAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.05],
+  });
 
   useEffect(() => {
     if (comment) {
@@ -80,22 +119,44 @@ export default function AiRoastBubble({ comment, loading, color = "#7c3aed" }: P
         source={require("../../assets/animations/duck-comment.gif")}
         style={styles.avatarGif}
       />
-      <View
-        style={[
-          styles.bubble,
-          { borderColor: color, backgroundColor: color + "16" },
-        ]}
-      >
-        <View style={[styles.bubbleTail, { borderRightColor: color }]} />
-        {loading || !comment ? (
-          <LoadingDots />
-        ) : (
-          <Animated.Text
-            style={[styles.bubbleText, { transform: [{ scale: popScale }] }]}
-          >
-            {comment}
-          </Animated.Text>
-        )}
+      <View style={styles.bubbleGlowWrap}>
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.flameGlow,
+            {
+              opacity: showFlame ? flameGlowOpacity : 0,
+              transform: [{ scale: flameGlowScale }],
+              backgroundColor: flameColor,
+            },
+          ]}
+        />
+        <Animated.View
+          style={[
+            styles.bubble,
+            {
+              backgroundColor: color + "16",
+              borderColor: showFlame ? flameColor : color,
+              shadowColor: showFlame ? flameColor : "#000",
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.bubbleTail,
+              { borderRightColor: showFlame ? "#f97316" : color },
+            ]}
+          />
+          {loading || !comment ? (
+            <LoadingDots />
+          ) : (
+            <Animated.Text
+              style={[styles.bubbleText, { transform: [{ scale: popScale }] }]}
+            >
+              {comment}
+            </Animated.Text>
+          )}
+        </Animated.View>
       </View>
     </View>
   );
@@ -109,7 +170,16 @@ const styles = StyleSheet.create({
     marginVertical: 8,
     paddingHorizontal: 4,
   },
-  avatarGif: { width: 34, height: 34, marginTop: 2, borderRadius: 17 },
+  avatarGif: { width: 52, height: 52, marginTop: 2, borderRadius: 26 },
+  bubbleGlowWrap: { flex: 1, position: "relative" },
+  flameGlow: {
+    position: "absolute",
+    top: -5,
+    left: -5,
+    right: -5,
+    bottom: -5,
+    borderRadius: 18,
+  },
   bubble: {
     flex: 1,
     borderWidth: 1.5,
@@ -118,6 +188,10 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     position: "relative",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+    elevation: 4,
   },
   bubbleTail: {
     position: "absolute",

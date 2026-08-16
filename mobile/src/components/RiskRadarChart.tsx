@@ -30,7 +30,7 @@ const LABEL_RADIUS_RATIO = 1.32;
 
 export default function RiskRadarChart({
   axes,
-  size = 220,
+  size = 190,
   color = "#ef4444",
 }: Props) {
   const center = size / 2;
@@ -57,7 +57,9 @@ export default function RiskRadarChart({
     })
     .join(" ");
 
-  const outerContainerSize = size + 70; // dư chỗ cho label tràn ra ngoài vòng tròn
+  const LABEL_PADDING = 26; // giam tu 35 - vong tron 220 giu nguyen, chi
+  // bot khoang lem quanh label, keo ca component len sat hon.
+  const outerContainerSize = size + LABEL_PADDING * 2;
 
   return (
     <View
@@ -66,7 +68,7 @@ export default function RiskRadarChart({
         { width: outerContainerSize, height: outerContainerSize },
       ]}
     >
-      <View style={{ position: "absolute", left: 35, top: 35 }}>
+      <View style={{ position: "absolute", left: LABEL_PADDING, top: LABEL_PADDING }}>
         <Svg width={size} height={size}>
           {Array.from({ length: RING_COUNT }).map((_, ringIdx) => {
             const ratio = (ringIdx + 1) / RING_COUNT;
@@ -112,9 +114,7 @@ export default function RiskRadarChart({
 
           {axes.map((axis, i) => {
             const p = pointAt(i, Math.max(axis.score, 4) / 100);
-            return (
-              <Circle key={axis.key} cx={p.x} cy={p.y} r={4} fill={color} />
-            );
+            return <Circle key={axis.key} cx={p.x} cy={p.y} r={4} fill={color} />;
           })}
         </Svg>
 

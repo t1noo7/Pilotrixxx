@@ -878,7 +878,7 @@ export default function TripScreen() {
           />
           <Text style={styles.overspeedText}>
             Đoạn đường bạn đang đi giới hạn tốc độ {overspeedLimit}km/h, hãy chú
-            ý nếu không muốn bị vặt lông‼️
+            ý nếu không muốn bị vặt lông 🤬‼️
           </Text>
         </View>
       )}
@@ -895,7 +895,7 @@ export default function TripScreen() {
               triggerEvent("hard_brake");
             }}
           >
-            <Text style={styles.debugChipText}>🛑 Phanh gấp</Text>
+            <Text style={styles.debugChipText}>🤬 Phanh gấp</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -906,7 +906,7 @@ export default function TripScreen() {
               triggerEvent("rapid_accel");
             }}
           >
-            <Text style={styles.debugChipText}>🚀 Tăng tốc</Text>
+            <Text style={styles.debugChipText}>😌 Tăng tốc</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -917,7 +917,7 @@ export default function TripScreen() {
               triggerEvent("sharp_turn");
             }}
           >
-            <Text style={styles.debugChipText}>🌀 Cua gắt</Text>
+            <Text style={styles.debugChipText}>😁 Cua gắt</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -935,7 +935,7 @@ export default function TripScreen() {
               }
             }}
           >
-            <Text style={styles.debugChipText}>↔️ Lấn làn</Text>
+            <Text style={styles.debugChipText}>🥸🐶 Lấn làn</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -949,7 +949,7 @@ export default function TripScreen() {
               triggerEvent("overspeed");
             }}
           >
-            <Text style={styles.debugChipText}>🚨 Vượt tốc</Text>
+            <Text style={styles.debugChipText}>🥹 Vượt tốc</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -1031,8 +1031,8 @@ export default function TripScreen() {
                       // cho model/backend) thanh "diem tai xe /10" (cao =
                       // tot) - de hieu voi driver, khong doi gi ben model.
                       ` · ${Math.round(
-                          (1 - result.riskScore.final.risk_score) * 10,
-                        )}/10 điểm`
+                        (1 - result.riskScore.final.risk_score) * 10,
+                      )}/10 điểm`
                     : ""}
                 </Text>
               </View>
@@ -1068,7 +1068,9 @@ export default function TripScreen() {
                       color={RISK_COLOR[riskLevel ?? "safe"]}
                     />
                     <AiRoastBubble
-                      comment={aiComment ?? (aiCommentLoading ? null : finalComment)}
+                      comment={
+                        aiComment ?? (aiCommentLoading ? null : finalComment)
+                      }
                       loading={aiCommentLoading}
                       color={RISK_COLOR[riskLevel ?? "safe"]}
                     />
@@ -1277,7 +1279,7 @@ const styles = StyleSheet.create({
     color: "#374151",
   },
   breakdownScroll: {
-    maxHeight: 340,
+    maxHeight: 480,
     width: "100%",
   },
   breakdownFinalComment: {
