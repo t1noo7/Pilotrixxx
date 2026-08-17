@@ -575,9 +575,6 @@ export default function WaitingScreen() {
               </Animated.View>
               <Text style={styles.title}>Xe đã tới nơi! 🎉</Text>
             </View>
-            <Text style={styles.subtitle}>
-              Sẵn sàng bắt đầu chuyến đi của bạn
-            </Text>
             <TouchableOpacity
               style={styles.startBtn}
               onPress={handleStart}

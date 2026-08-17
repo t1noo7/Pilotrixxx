@@ -1,5 +1,13 @@
 import React, { useEffect, useRef } from "react";
-import { View, Text, StyleSheet, Animated, Easing, Image } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Animated,
+  Easing,
+  Image,
+  ScrollView,
+} from "react-native";
 
 interface Props {
   comment: string | null;
@@ -8,7 +16,11 @@ interface Props {
 }
 
 function LoadingDots() {
-  const dots = [useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current];
+  const dots = [
+    useRef(new Animated.Value(0)).current,
+    useRef(new Animated.Value(0)).current,
+    useRef(new Animated.Value(0)).current,
+  ];
 
   useEffect(() => {
     const anims = dots.map((dot, i) =>
@@ -43,10 +55,16 @@ function LoadingDots() {
           style={[
             styles.dot,
             {
-              opacity: dot.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }),
+              opacity: dot.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.3, 1],
+              }),
               transform: [
                 {
-                  translateY: dot.interpolate({ inputRange: [0, 1], outputRange: [0, -4] }),
+                  translateY: dot.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, -4],
+                  }),
                 },
               ],
             },
@@ -57,7 +75,11 @@ function LoadingDots() {
   );
 }
 
-export default function AiRoastBubble({ comment, loading, color = "#7c3aed" }: Props) {
+export default function AiRoastBubble({
+  comment,
+  loading,
+  color = "#7c3aed",
+}: Props) {
   const popAnim = useRef(new Animated.Value(0)).current;
   // Hieu ung "lua chay" quanh vien bubble - vien doi mau cam->vang->do
   // lien tuc + 1 lop glow mo phia sau nhap nhay theo. Chi bat khi DA CO
@@ -72,7 +94,7 @@ export default function AiRoastBubble({ comment, loading, color = "#7c3aed" }: P
           toValue: 1,
           duration: 900,
           easing: Easing.inOut(Easing.sin),
-          useNativeDriver: false, // interpolate mau + shadow khong ho tro native driver
+          useNativeDriver: false, // interpolate mau khong ho tro native driver
         }),
         Animated.timing(flameAnim, {
           toValue: 0,
@@ -111,7 +133,10 @@ export default function AiRoastBubble({ comment, loading, color = "#7c3aed" }: P
     }
   }, [comment]);
 
-  const popScale = popAnim.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] });
+  const popScale = popAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.7, 1],
+  });
 
   return (
     <View style={styles.row}>
@@ -137,11 +162,10 @@ export default function AiRoastBubble({ comment, loading, color = "#7c3aed" }: P
             {
               backgroundColor: color + "16",
               borderColor: showFlame ? flameColor : color,
-              shadowColor: showFlame ? flameColor : "#000",
             },
           ]}
         >
-          <View
+          <Animated.View
             style={[
               styles.bubbleTail,
               { borderRightColor: showFlame ? "#f97316" : color },
@@ -150,11 +174,24 @@ export default function AiRoastBubble({ comment, loading, color = "#7c3aed" }: P
           {loading || !comment ? (
             <LoadingDots />
           ) : (
-            <Animated.Text
-              style={[styles.bubbleText, { transform: [{ scale: popScale }] }]}
+            // Thanh cuon RIENG cho phan text - phong khi cau AI dai hon
+            // du gian hien tai (radar 220 + rows ben duoi da chiem nhieu
+            // cho), khong bi day het layout ben duoi ra khoi man hinh.
+            <ScrollView
+              style={styles.bubbleTextScroll}
+              showsVerticalScrollIndicator
+              nestedScrollEnabled
+              persistentScrollbar
             >
-              {comment}
-            </Animated.Text>
+              <Animated.Text
+                style={[
+                  styles.bubbleText,
+                  { transform: [{ scale: popScale }] },
+                ]}
+              >
+                {comment}
+              </Animated.Text>
+            </ScrollView>
           )}
         </Animated.View>
       </View>
@@ -188,10 +225,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     position: "relative",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 6,
-    elevation: 4,
+  },
+  bubbleTextScroll: {
+    maxHeight: 90,
   },
   bubbleTail: {
     position: "absolute",
@@ -210,6 +246,7 @@ const styles = StyleSheet.create({
     color: "#374151",
     fontStyle: "italic",
     lineHeight: 18,
+    paddingRight: 4,
   },
   dotsRow: {
     flexDirection: "row",

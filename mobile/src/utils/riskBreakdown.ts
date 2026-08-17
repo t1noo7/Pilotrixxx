@@ -69,7 +69,7 @@ const COMMENTS: Record<string, [string, string, string, string]> = {
 
 const FINAL_COMMENTS: Record<"safe" | "medium" | "dangerous", string> = {
   safe: "Chuyến này an toàn, hồ sơ lái xe của mày đang rất đẹp 👍",
-  medium: "Ổn áp phần lớn, chỉ vài chỗ hơi \"nhiệt tình\". Giữ phong độ nhé.",
+  medium: 'Ổn áp phần lớn, chỉ vài chỗ hơi "nhiệt tình". Giữ phong độ nhé.',
   dangerous:
     "Chuyến này mà đưa hội đồng chấm chắc cũng phải lắc đầu. Chạy chill lại đi 🙏",
 };
@@ -81,10 +81,34 @@ const AXIS_CONFIGS: Array<{
   emoji: string;
   unit: string;
 }> = [
-  { key: "hard_brake_per_min", commentKey: "hard_brake", label: "Phanh gấp", emoji: "🛑", unit: "lần/phút" },
-  { key: "rapid_accel_per_min", commentKey: "rapid_accel", label: "Tăng tốc", emoji: "🚀", unit: "lần/phút" },
-  { key: "sharp_turn_per_min", commentKey: "sharp_turn", label: "Cua gắt", emoji: "🌀", unit: "lần/phút" },
-  { key: "overspeed_ratio", commentKey: "overspeed", label: "Vượt tốc", emoji: "⚡", unit: "% thời gian" },
+  {
+    key: "hard_brake_per_min",
+    commentKey: "hard_brake",
+    label: "Phanh gấp",
+    emoji: "🤬",
+    unit: "lần/phút",
+  },
+  {
+    key: "rapid_accel_per_min",
+    commentKey: "rapid_accel",
+    label: "Tăng tốc",
+    emoji: "😌",
+    unit: "lần/phút",
+  },
+  {
+    key: "sharp_turn_per_min",
+    commentKey: "sharp_turn",
+    label: "Cua gắt",
+    emoji: "😁",
+    unit: "lần/phút",
+  },
+  {
+    key: "overspeed_ratio",
+    commentKey: "overspeed",
+    label: "Vượt tốc",
+    emoji: "🥹",
+    unit: "% thời gian",
+  },
 ];
 
 export function buildRiskBreakdown(
