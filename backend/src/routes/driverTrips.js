@@ -430,7 +430,7 @@ driverTripsRouter.post('/trips/:id/simulate-lane-drift', async (req, res) => {
                 error: 'Chua co telemetry nao cho trip nay - doi vai giay roi thu lai',
             });
         }
-        const telemetryId = telemetryRes.rows[0].telemetry_id;
+        const telemetryId = telemetryRes.rows[0].id;
 
         // severity 'high' co chu dich (khong phai mac dinh) - vi day la
         // event dang demo chu dong bam, muon no hien alert realtime tren
