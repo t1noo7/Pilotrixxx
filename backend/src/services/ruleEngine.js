@@ -1,5 +1,4 @@
 import { pool } from '../db.js';
-import { io } from '../server.js';
 
 /**
  * RULE ENGINE
@@ -123,10 +122,11 @@ function buildAlertMessage(event, row) {
  */
 export async function runRuleEngine(client, row) {
     const events = detectEvents(row);
-    if (events.length === 0) return;
+    if (events.length === 0) return [];
+
+    const alertsToEmit = [];
 
     for (const event of events) {
-        // 1. Ghi vao driver_events (luon ghi, du muc do nao)
         const eventRes = await client.query(
             `INSERT INTO driver_events (trip_id, telemetry_id, event_type, severity, metric_value, occurred_at)
        VALUES ($1, $2, $3, $4, $5, $6)
@@ -135,7 +135,6 @@ export async function runRuleEngine(client, row) {
         );
         const eventId = eventRes.rows[0].event_id;
 
-        // 2. Neu severity = 'high' -> ghi them vao alerts
         if (event.severity === 'high') {
             const message = buildAlertMessage(event, row);
             await client.query(
@@ -143,8 +142,7 @@ export async function runRuleEngine(client, row) {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
                 [row.trip_id, row.vehicle_id, row.driver_id, eventId, event.event_type, event.severity, message, row.ts]
             );
-            // Emit realtime alert lên tất cả client Dashboard/Mobile đang connect
-            io.emit('alert', {
+            alertsToEmit.push({
                 tripId: row.trip_id,
                 vehicleId: row.vehicle_id,
                 driverId: row.driver_id,
@@ -154,7 +152,9 @@ export async function runRuleEngine(client, row) {
                 occurredAt: row.ts,
                 metricValue: event.metric_value,
             });
-            console.log(`[rule-engine] ALERT emitted: ${message} (trip ${row.trip_id})`);
+            console.log(`[rule-engine] ALERT queued (pending commit): ${message} (trip ${row.trip_id})`);
         }
     }
+
+    return alertsToEmit;
 }

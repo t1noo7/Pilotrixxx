@@ -14,9 +14,19 @@ import { io, driverNamespace } from '../server.js';
 export async function handleTelemetryMessage(topic, payload) {
     const { vehicleId, tripId, ts, position, acceleration, brakeIntensity, engine, device } = payload;
 
-    // Validate co ban - tranh insert du lieu thieu field bat buoc
     if (!vehicleId || !tripId || !ts) {
         console.warn('[telemetry] Missing required fields, skip message:', payload);
+        return;
+    }
+
+    // Doi chieu vehicleId trong topic voi vehicleId trong payload -
+    // tranh truong hop payload gia mao hoac simulator publish sai topic
+    const topicMatch = topic.match(/^vehicles\/([^/]+)\/telemetry$/);
+    const topicVehicleId = topicMatch?.[1];
+    if (topicVehicleId && String(topicVehicleId) !== String(vehicleId)) {
+        console.warn(
+            `[telemetry] Mismatch vehicleId: topic="${topicVehicleId}" payload="${vehicleId}", skip message`
+        );
         return;
     }
 
@@ -81,8 +91,8 @@ export async function handleTelemetryMessage(topic, payload) {
         );
         const driverId = tripRes.rows[0]?.driver_id;
 
-        // 2b. Emit realtime vi tri xe len tat ca client dang connect (Dashboard map)
-        io.emit('vehicle:position', {
+        // 2b. Chuan bi payload de emit SAU KHI commit (khong emit o day)
+        const vehiclePositionPayload = {
             vehicleId,
             tripId,
             latitude: position?.latitude,
@@ -92,17 +102,8 @@ export async function handleTelemetryMessage(topic, payload) {
             heading: position?.heading,
             ignitionStatus: engine?.ignitionStatus,
             ts,
-        });
+        };
 
-        // 2c. Emit rieng cho driver dang cho xe (waiting.tsx). QUAN TRONG:
-        // KHONG dung driverId/tripId cua payload (patrol trip dang publish
-        // telemetry) - phai tra CHINH XAC theo vehicle_id, tim trip 'manual'
-        // dang 'pending' cua no (neu co). Ly do: luc xe dang duoc dieu huong
-        // di don driver, no VAN dang publish telemetry duoi trip_id patrol
-        // goc (simulator khong doi trip_id giua chung), khac hoan toan voi
-        // trip_id 'manual' ma mobile app dang theo doi. Neu dung nham
-        // payload.tripId, driver_id tra ve luon NULL (patrol trip khong co
-        // driver) - day chinh la nguyen nhan xe "dung yen" tren map.
         const pendingRes = await client.query(
             `SELECT trip_id, driver_id FROM trips
              WHERE vehicle_id = $1 AND scenario = 'manual' AND status = 'pending'
@@ -110,10 +111,10 @@ export async function handleTelemetryMessage(topic, payload) {
             [vehicleId]
         );
         const pendingTrip = pendingRes.rows[0];
-        if (pendingTrip) {
-            driverNamespace.to(`driver:${pendingTrip.driver_id}`).emit('vehicle:position', {
+        const driverPositionPayload = pendingTrip
+            ? {
                 vehicleId,
-                tripId: pendingTrip.trip_id, // gui dung tripId 'manual' de client filter khop
+                tripId: pendingTrip.trip_id,
                 latitude: position?.latitude,
                 longitude: position?.longitude,
                 positionValid: position?.valid,
@@ -121,11 +122,11 @@ export async function handleTelemetryMessage(topic, payload) {
                 heading: position?.heading,
                 etaSeconds: payload.etaSeconds ?? null,
                 ts,
-            });
-        }
+            }
+            : null;
 
-        // 4. Goi Rule Engine - cung transaction, neu loi se rollback chung
-        await runRuleEngine(client, {
+        // 4. Rule Engine - tra ve list alert can emit, chua emit voi gi ca
+        const alertsToEmit = await runRuleEngine(client, {
             telemetry_id: telemetryId,
             trip_id: tripId,
             vehicle_id: vehicleId,
@@ -142,9 +143,25 @@ export async function handleTelemetryMessage(topic, payload) {
         });
 
         await client.query('COMMIT');
+
+        try {
+            io.emit('vehicle:position', vehiclePositionPayload);
+            if (pendingTrip && driverPositionPayload) {
+                driverNamespace.to(`driver:${pendingTrip.driver_id}`).emit('vehicle:position', driverPositionPayload);
+            }
+            for (const alert of alertsToEmit) {
+                io.emit('alert', alert);
+                console.log(`[rule-engine] ALERT emitted: ${alert.message} (trip ${alert.tripId})`);
+            }
+        } catch (emitErr) {
+            // DB da commit thanh cong - loi o day chi la loi broadcast,
+            // khong duoc rollback (khong con gi de rollback) va khong nen
+            // lam fail toan bo message xu ly
+            console.error('[telemetry] Emit error (data already committed):', emitErr.message);
+        }
     } catch (err) {
         await client.query('ROLLBACK');
-        throw err; // de mqtt.js bat va log, khong crash server
+        throw err;
     } finally {
         client.release();
     }
