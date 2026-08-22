@@ -1,7 +1,7 @@
 import axios from "axios";
 import * as SecureStore from "expo-secure-store";
 
-const BASE_URL = "https://pilotrixxx.onrender.com"; // đổi thành URL Render thật
+const BASE_URL = "https://pilotrixxx.onrender.com";
 
 export const apiClient = axios.create({ baseURL: BASE_URL });
 
