@@ -55,6 +55,30 @@ driverTripsRouter.get('/vehicles', async (req, res) => {
 });
 
 /**
+ * GET /api/driver/profile
+ * Thông tin cá nhân của CHÍNH driver đang đăng nhập - không nhận driverId
+ * từ query (tránh xem được thông tin tài xế khác). Chỉ trả field an toàn,
+ * KHÔNG bao giờ trả password_hash/otp_code/otp_expires_at.
+ */
+driverTripsRouter.get('/profile', async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT driver_id, full_name, phone_number, license_number,
+                    email, email_verified, created_at
+             FROM drivers WHERE driver_id = $1`,
+            [req.driver.driverId]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Không tìm thấy thông tin tài xế' });
+        }
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('[GET /driver/profile] Error:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
  * GET /api/driver/trips/current
  * Trip đang chạy của CHÍNH driver này (nếu có) - dùng để app resume state
  * khi mở lại app giữa chuyến (vd bị tắt app, mất mạng).
