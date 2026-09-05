@@ -7,13 +7,17 @@ import {
   Alert,
   Modal,
   TextInput,
+  Image,
+  ActivityIndicator,
 } from "react-native";
 import { router } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "../../../src/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import {
   getProfile,
   updateProfile,
+  uploadAvatar,
   DriverProfile,
 } from "../../../src/api/driverTrips";
 
@@ -22,6 +26,7 @@ export default function ProfileScreen() {
   const [profile, setProfile] = useState<DriverProfile | null>(null);
   const [editVisible, setEditVisible] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const [fullNameInput, setFullNameInput] = useState("");
   const [phoneInput, setPhoneInput] = useState("");
@@ -70,6 +75,44 @@ export default function ProfileScreen() {
     }
   };
 
+  const handlePickAvatar = async () => {
+    // Xin quyền truy cập thư viện ảnh - chỉ hỏi khi thực sự cần (lazy),
+    // không xin ngay lúc mở màn hình.
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Cần quyền truy cập",
+        "Cho phép truy cập thư viện ảnh để đổi ảnh đại diện",
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1], // Crop vuông - khớp avatar tròn
+      quality: 0.6, // Nén sẵn phía client - giảm dung lượng trước khi upload
+    });
+
+    if (result.canceled || !result.assets?.[0]) return;
+
+    const imageUri = result.assets[0].uri;
+    setUploadingAvatar(true);
+    try {
+      const updated = await uploadAvatar(imageUri);
+      setProfile((prev) =>
+        prev ? { ...prev, avatar_url: updated.avatar_url } : prev,
+      );
+    } catch (err: any) {
+      Alert.alert(
+        "Không đổi được ảnh",
+        err.response?.data?.error || "Có lỗi xảy ra, thử lại sau",
+      );
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
   const handleLogout = () => {
     Alert.alert("Đăng xuất", "Bạn có chắc muốn đăng xuất?", [
       { text: "Huỷ", style: "cancel" },
@@ -84,13 +127,33 @@ export default function ProfileScreen() {
     ]);
   };
 
-  const displayName = profile?.full_name ?? driver?.fullName;
-
   return (
     <View style={styles.container}>
-      <View style={styles.avatarCircle}>
-        <Ionicons name="person" size={48} color="#2563eb" />
-      </View>
+      <TouchableOpacity
+        style={styles.avatarWrapper}
+        onPress={handlePickAvatar}
+        disabled={uploadingAvatar}
+        activeOpacity={0.8}
+      >
+        <View style={styles.avatarCircle}>
+          {profile?.avatar_url ? (
+            <Image
+              source={{ uri: profile.avatar_url }}
+              style={styles.avatarImage}
+            />
+          ) : (
+            <Ionicons name="person" size={48} color="#2563eb" />
+          )}
+          {uploadingAvatar && (
+            <View style={styles.avatarLoadingOverlay}>
+              <ActivityIndicator color="#fff" />
+            </View>
+          )}
+        </View>
+        <View style={styles.avatarCameraBadge}>
+          <Ionicons name="camera" size={16} color="#fff" />
+        </View>
+      </TouchableOpacity>
 
       <View style={styles.nameRow}>
         <Text style={styles.name}>
@@ -191,6 +254,11 @@ const styles = StyleSheet.create({
     paddingTop: 48,
     backgroundColor: "#fff",
   },
+  avatarWrapper: {
+    width: 88,
+    height: 88,
+    marginBottom: 16,
+  },
   avatarCircle: {
     width: 88,
     height: 88,
@@ -198,7 +266,34 @@ const styles = StyleSheet.create({
     backgroundColor: "#eff6ff",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 16,
+    overflow: "hidden",
+  },
+  avatarImage: {
+    width: 88,
+    height: 88,
+  },
+  avatarLoadingOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "#00000066",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarCameraBadge: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#2563eb",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#fff",
   },
   nameRow: {
     flexDirection: "row",

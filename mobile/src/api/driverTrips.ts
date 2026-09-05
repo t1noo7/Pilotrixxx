@@ -20,6 +20,7 @@ export interface DriverProfile {
   email: string;
   email_verified: boolean;
   created_at: string;
+  avatar_url: string | null;
 }
 
 export async function getProfile(): Promise<DriverProfile> {
@@ -179,5 +180,30 @@ export async function getAqiHeatmap(
       step: options?.step,
     },
   });
+  return data;
+}
+
+export async function uploadAvatar(
+  imageUri: string,
+): Promise<{ driver_id: string; avatar_url: string }> {
+  const filename = imageUri.split("/").pop() ?? "avatar.jpg";
+  const ext = filename.split(".").pop()?.toLowerCase();
+  const mimeType = ext === "png" ? "image/png" : "image/jpeg";
+
+  const formData = new FormData();
+  // React Native FormData: object { uri, name, type } thay vi Blob nhu web
+  formData.append("avatar", {
+    uri: imageUri,
+    name: filename,
+    type: mimeType,
+  } as any);
+
+  const { data } = await apiClient.post(
+    "/api/driver/profile/avatar",
+    formData,
+    {
+      headers: { "Content-Type": "multipart/form-data" },
+    },
+  );
   return data;
 }
