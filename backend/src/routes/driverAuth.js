@@ -11,6 +11,19 @@ const OTP_TTL_MINUTES = 10;
 const RESEND_COOLDOWN_SECONDS = 60;
 
 /**
+ * Kiem tra cooldown resend OTP dua vao otp_expires_at hien co (suy nguoc
+ * ra thoi diem gui lan truoc). Dung chung cho ca /register (nhanh email
+ * chua verify) va /resend-otp - de khong co "duong tat" nao bo qua cooldown.
+ * Tra ve so giay con phai doi (0 = duoc gui ngay).
+ */
+function getResendCooldownRemaining(otpExpiresAt) {
+    if (!otpExpiresAt) return 0;
+    const lastSentAt = new Date(new Date(otpExpiresAt).getTime() - OTP_TTL_MINUTES * 60_000);
+    const secondsSinceLastSent = (Date.now() - lastSentAt.getTime()) / 1000;
+    return Math.max(0, RESEND_COOLDOWN_SECONDS - secondsSinceLastSent);
+}
+
+/**
  * POST /api/driver-auth/register
  * Tạo driver với email_verified = false, gửi OTP, KHÔNG trả token
  * (phải verify OTP xong mới có token - xem POST /verify-otp)
@@ -26,7 +39,7 @@ driverAuthRouter.post('/register', async (req, res) => {
 
     try {
         const existing = await pool.query(
-            'SELECT driver_id, email_verified FROM drivers WHERE email = $1',
+            'SELECT driver_id, email_verified, otp_expires_at FROM drivers WHERE email = $1',
             [email]
         );
 
@@ -34,15 +47,23 @@ driverAuthRouter.post('/register', async (req, res) => {
             if (existing.rows[0].email_verified) {
                 return res.status(409).json({ error: 'Email đã được đăng ký' });
             }
-            // Email tồn tại nhưng chưa verify (khả năng cao do lần đăng ký
-            // trước gửi OTP thất bại) - coi như gửi lại OTP, không chặn cứng.
+
+            // Ap dung cung cooldown voi /resend-otp - tranh spam OTP qua duong
+            // /register lap lai voi email chua verify.
+            const cooldownRemaining = getResendCooldownRemaining(existing.rows[0].otp_expires_at);
+            if (cooldownRemaining > 0) {
+                return res.status(429).json({
+                    error: `Vui lòng đợi ${Math.ceil(cooldownRemaining)}s trước khi thử lại`,
+                });
+            }
+
             const passwordHash = await bcrypt.hash(password, 10);
             const otp = generateOtp();
             const otpExpiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60_000);
             await pool.query(
                 `UPDATE drivers SET password_hash = $1, full_name = $2, phone_number = $3,
-                        license_number = $4, otp_code = $5, otp_expires_at = $6
-                 WHERE driver_id = $7`,
+                license_number = $4, otp_code = $5, otp_expires_at = $6
+         WHERE driver_id = $7`,
                 [passwordHash, fullName, phoneNumber || null, licenseNumber || null, otp, otpExpiresAt, existing.rows[0].driver_id]
             );
             await sendOtpEmail(email, otp);
@@ -134,14 +155,11 @@ driverAuthRouter.post('/resend-otp', async (req, res) => {
             return res.status(400).json({ error: 'Email đã được xác thực trước đó' });
         }
 
-        if (driver.otp_expires_at) {
-            const lastSentAt = new Date(new Date(driver.otp_expires_at).getTime() - OTP_TTL_MINUTES * 60_000);
-            const secondsSinceLastSent = (Date.now() - lastSentAt.getTime()) / 1000;
-            if (secondsSinceLastSent < RESEND_COOLDOWN_SECONDS) {
-                return res.status(429).json({
-                    error: `Vui lòng đợi ${Math.ceil(RESEND_COOLDOWN_SECONDS - secondsSinceLastSent)}s trước khi gửi lại`,
-                });
-            }
+        const cooldownRemaining = getResendCooldownRemaining(driver.otp_expires_at);
+        if (cooldownRemaining > 0) {
+            return res.status(429).json({
+                error: `Vui lòng đợi ${Math.ceil(cooldownRemaining)}s trước khi gửi lại`,
+            });
         }
 
         const otp = generateOtp();
