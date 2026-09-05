@@ -5,6 +5,8 @@ import { runMlPredict } from './trips.js';
 import { handleTelemetryMessage } from '../services/telemetryService.js';
 import { getSpeedLimit } from '../services/speedLimitLookup.js';
 import { io, fleetControlNamespace, driverNamespace } from '../server.js';
+import multer from 'multer';
+import { uploadAvatar, deleteAvatar } from '../services/supabaseStorage.js';
 
 export const driverTripsRouter = express.Router();
 
@@ -21,6 +23,29 @@ const PENDING_TRIP_TIMEOUT_MINUTES = 10;
 // song/chet nua (xe da dung yen san roi) - chi la driver cho qua lau.
 // Threshold tinh tu vehicle_ready_at, KHONG phai created_at.
 const PICKUP_WAIT_TIMEOUT_MINUTES = 10;
+
+// Memory storage - KHONG ghi file tam ra disk vi Render la ephemeral
+// filesystem (container restart la mat het). Buffer forward thang len
+// Supabase Storage.
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+    fileFilter: (req, file, cb) => {
+        if (!['image/jpeg', 'image/png'].includes(file.mimetype)) {
+            return cb(new Error('Chỉ chấp nhận ảnh JPEG hoặc PNG'));
+        }
+        cb(null, true);
+    },
+});
+
+// Wrap upload.single() de bat loi multer (file qua lon, sai mimetype) va
+// tra JSON thay vi de Express error handler mac dinh tra HTML stack trace.
+function handleAvatarUpload(req, res, next) {
+    upload.single('avatar')(req, res, (err) => {
+        if (err) return res.status(400).json({ error: err.message });
+        next();
+    });
+}
 
 /**
  * GET /api/driver/vehicles
@@ -64,7 +89,7 @@ driverTripsRouter.get('/profile', async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT driver_id, full_name, phone_number, license_number,
-                    email, email_verified, created_at
+                    email, email_verified, created_at, avatar_url
              FROM drivers WHERE driver_id = $1`,
             [req.driver.driverId]
         );
@@ -94,7 +119,7 @@ driverTripsRouter.patch('/profile', async (req, res) => {
             `UPDATE drivers
              SET full_name = $1, phone_number = $2, license_number = $3, updated_at = now()
              WHERE driver_id = $4
-             RETURNING driver_id, full_name, phone_number, license_number, email, email_verified, created_at`,
+             RETURNING driver_id, full_name, phone_number, license_number, email, email_verified, created_at, avatar_url`,
             [fullName.trim(), phoneNumber || null, licenseNumber || null, req.driver.driverId]
         );
         if (result.rows.length === 0) {
@@ -104,6 +129,44 @@ driverTripsRouter.patch('/profile', async (req, res) => {
     } catch (err) {
         console.error('[PATCH /driver/profile] Error:', err.message);
         res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * POST /api/driver/profile/avatar
+ * Upload avatar cho CHINH driver dang dang nhap. Field multipart: "avatar".
+ * Anh luu tren Supabase Storage, chi UPDATE cot avatar_url voi public URL
+ * tra ve - khong ghi file ra disk backend.
+ */
+driverTripsRouter.post('/profile/avatar', handleAvatarUpload, async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'Thiếu file avatar' });
+    }
+    try {
+        // Lay avatar_url CU truoc, de con xoa sau khi upload thanh cong
+        const oldRes = await pool.query(
+            'SELECT avatar_url FROM drivers WHERE driver_id = $1',
+            [req.driver.driverId]
+        );
+        const oldAvatarUrl = oldRes.rows[0]?.avatar_url ?? null;
+
+        const publicUrl = await uploadAvatar(req.driver.driverId, req.file.buffer, req.file.mimetype);
+
+        const result = await pool.query(
+            `UPDATE drivers SET avatar_url = $1, updated_at = now()
+             WHERE driver_id = $2
+             RETURNING driver_id, avatar_url`,
+            [publicUrl, req.driver.driverId]
+        );
+
+        // Don dep anh cu - best-effort, khong lam fail response neu loi
+        // (anh moi da luu thanh cong roi, chi la don rac phu).
+        await deleteAvatar(oldAvatarUrl);
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('[POST /driver/profile/avatar] Error:', err.message);
+        res.status(500).json({ error: 'Không thể upload avatar' });
     }
 });
 
