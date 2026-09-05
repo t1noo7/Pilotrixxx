@@ -12,6 +12,30 @@ export async function getVehicles(): Promise<Vehicle[]> {
   return data;
 }
 
+export interface DriverProfile {
+  driver_id: string;
+  full_name: string;
+  phone_number: string | null;
+  license_number: string | null;
+  email: string;
+  email_verified: boolean;
+  created_at: string;
+}
+
+export async function getProfile(): Promise<DriverProfile> {
+  const { data } = await apiClient.get("/api/driver/profile");
+  return data;
+}
+
+export async function updateProfile(payload: {
+  fullName: string;
+  phoneNumber?: string | null;
+  licenseNumber?: string | null;
+}): Promise<DriverProfile> {
+  const { data } = await apiClient.patch("/api/driver/profile", payload);
+  return data;
+}
+
 export async function getCurrentTrip(): Promise<CurrentTrip | null> {
   const { data } = await apiClient.get("/api/driver/trips/current");
   return data;

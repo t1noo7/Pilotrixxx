@@ -79,6 +79,35 @@ driverTripsRouter.get('/profile', async (req, res) => {
 });
 
 /**
+ * PATCH /api/driver/profile
+ * Cho phép driver tự cập nhật full_name/phone_number/license_number.
+ * KHÔNG cho sửa email (gắn với đăng nhập + email_verified) hay password
+ * qua route này - cần luồng riêng nếu sau này làm.
+ */
+driverTripsRouter.patch('/profile', async (req, res) => {
+    const { fullName, phoneNumber, licenseNumber } = req.body;
+    if (!fullName || !fullName.trim()) {
+        return res.status(400).json({ error: 'fullName là bắt buộc' });
+    }
+    try {
+        const result = await pool.query(
+            `UPDATE drivers
+             SET full_name = $1, phone_number = $2, license_number = $3, updated_at = now()
+             WHERE driver_id = $4
+             RETURNING driver_id, full_name, phone_number, license_number, email, email_verified, created_at`,
+            [fullName.trim(), phoneNumber || null, licenseNumber || null, req.driver.driverId]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Không tìm thấy thông tin tài xế' });
+        }
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('[PATCH /driver/profile] Error:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
  * GET /api/driver/trips/current
  * Trip đang chạy của CHÍNH driver này (nếu có) - dùng để app resume state
  * khi mở lại app giữa chuyến (vd bị tắt app, mất mạng).
