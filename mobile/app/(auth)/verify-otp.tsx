@@ -130,6 +130,15 @@ export default function VerifyOtpScreen() {
             : "Gửi lại mã OTP"}
         </Text>
       </Pressable>
+
+      <Pressable
+        onPress={() => router.replace("/(auth)/login")}
+        style={styles.loginLinkButton}
+      >
+        <Text style={styles.loginLinkText}>
+          Đã có tài khoản? Đăng nhập
+        </Text>
+      </Pressable>
     </View>
   );
 }
@@ -191,4 +200,6 @@ const styles = StyleSheet.create({
   resendButton: { marginTop: 20, alignSelf: "center" },
   resendText: { color: "#22c55e", fontSize: 14 },
   resendTextDisabled: { color: "#475569" },
+  loginLinkButton: { marginTop: 14, alignSelf: "center" },
+  loginLinkText: { color: "#94a3b8", fontSize: 13, textDecorationLine: "underline" },
 });
