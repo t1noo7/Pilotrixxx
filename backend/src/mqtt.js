@@ -13,12 +13,24 @@ export function connectMqtt() {
     client = mqtt.connect(url, {
         username: process.env.MQTT_USERNAME,
         password: process.env.MQTT_PASSWORD,
-        clientId: `datn-backend-${Math.random().toString(16).slice(2, 8)}`,
+        // clientId CO DINH theo tung MOI TRUONG (qua env, KHONG hardcode
+        // 1 gia tri duy nhat) + clean: false -> persistent session.
+        //
+        // TAI SAO PHAI TACH THEO ENV: neu hardcode 1 clientId duy nhat,
+        // chay "pnpm dev" local trong luc ban Render dang chay se khien
+        // 2 process cung dung 1 clientId - MQTT spec KHONG cho phep 2
+        // ket noi trung clientId, broker se DA VAN ket noi cu (tuc la
+        // chay local vo tinh lam rot MQTT cua ban production dang chay
+        // that). Dat MQTT_CLIENT_ID rieng cho moi moi truong (vd
+        // "datn-backend-render" tren Render, "datn-backend-local" trong
+        // .env local) de tranh dung nhau.
+        clientId: process.env.MQTT_CLIENT_ID || 'datn-backend-local',
+        clean: false,
         reconnectPeriod: 2000, // tu reconnect sau 2s neu mat ket noi
     });
 
-    client.on('connect', () => {
-        console.log('[mqtt] Connected to broker');
+    client.on('connect', (connack) => {
+        console.log('[mqtt] Connected to broker. Session present:', connack.sessionPresent);
         client.subscribe(TELEMETRY_TOPIC, { qos: 1 }, (err) => {
             if (err) {
                 console.error('[mqtt] Subscribe error:', err.message);
