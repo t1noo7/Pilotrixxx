@@ -577,6 +577,24 @@ function VehicleMarker({
   );
 }
 
+// Leaflet KHONG tu phat hien duoc khi container cha doi kich thuoc do CSS
+// transition. Component nay lang nghe 1 CUSTOM EVENT ("pilotrix:layout-resize")
+// duoc DashboardLayout ban ra DUNG 1 LAN khi animation truot sidebar ket
+// thuc (qua su kien transitionend) - khong phai observer bam lien tuc
+// trong luc animate, chi 1 lan dung thoi diem can thiet.
+function MapResizeHandler() {
+  const map = useMap();
+
+  useEffect(() => {
+    const handleLayoutResize = () => map.invalidateSize();
+    window.addEventListener("pilotrix:layout-resize", handleLayoutResize);
+    return () =>
+      window.removeEventListener("pilotrix:layout-resize", handleLayoutResize);
+  }, [map]);
+
+  return null;
+}
+
 // Component con: tự fit bounds khi danh sách vị trí xe thay đổi lần đầu
 function FitBoundsOnLoad({ positions }) {
   const map = useMap();
@@ -1081,6 +1099,7 @@ export default function FleetMap() {
               );
             })}
             <FitBoundsOnLoad positions={validPositions} />
+            <MapResizeHandler />
 
             {vehicleList.map((v) => {
               if (v.last_latitude == null || v.last_longitude == null)
