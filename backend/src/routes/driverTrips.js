@@ -874,6 +874,76 @@ driverTripsRouter.get('/trips/history', async (req, res) => {
 });
 
 /**
+ * GET /api/driver/trips/:id/telemetry
+ * Toạ độ GPS/tốc độ theo thời gian của CHÍNH driver này - dùng để vẽ lại
+ * route thật (Trip Replay) trên mobile. Check ownership qua driver_id để
+ * driver không xem được telemetry chuyến của tài xế khác.
+ */
+driverTripsRouter.get('/trips/:id/telemetry', async (req, res) => {
+    const tripId = parseInt(req.params.id, 10);
+    if (Number.isNaN(tripId)) return res.status(400).json({ error: 'tripId không hợp lệ' });
+
+    try {
+        const ownerCheck = await pool.query(
+            'SELECT trip_id FROM trips WHERE trip_id = $1 AND driver_id = $2',
+            [tripId, req.driver.driverId]
+        );
+        if (ownerCheck.rows.length === 0) {
+            return res.status(404).json({ error: `Chuyến #${tripId} không tồn tại hoặc không thuộc về bạn` });
+        }
+
+        const result = await pool.query(`
+            SELECT
+                id AS telemetry_id, ts, latitude AS lat, longitude AS lng, speed, speed_limit,
+                accel_x, accel_y, accel_z, brake_intensity,
+                heading, position_valid, satellites
+            FROM telemetry_raw
+            WHERE trip_id = $1
+            ORDER BY ts ASC
+        `, [tripId]);
+        res.json({ tripId, count: result.rows.length, points: result.rows });
+    } catch (err) {
+        console.error('[GET /driver/trips/:id/telemetry] Error:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * GET /api/driver/trips/:id/risk-events
+ * Toạ độ sự kiện nguy hiểm của CHÍNH driver này - dùng đánh marker trên
+ * Trip Replay. Cùng ownership check với /telemetry ở trên.
+ */
+driverTripsRouter.get('/trips/:id/risk-events', async (req, res) => {
+    const tripId = parseInt(req.params.id, 10);
+    if (Number.isNaN(tripId)) return res.status(400).json({ error: 'tripId không hợp lệ' });
+
+    try {
+        const ownerCheck = await pool.query(
+            'SELECT trip_id FROM trips WHERE trip_id = $1 AND driver_id = $2',
+            [tripId, req.driver.driverId]
+        );
+        if (ownerCheck.rows.length === 0) {
+            return res.status(404).json({ error: `Chuyến #${tripId} không tồn tại hoặc không thuộc về bạn` });
+        }
+
+        const result = await pool.query(`
+            SELECT
+                de.event_id, de.event_type, de.severity, de.occurred_at,
+                de.metric_value,
+                tr.latitude AS lat, tr.longitude AS lng
+            FROM driver_events de
+            JOIN telemetry_raw tr ON tr.id = de.telemetry_id
+            WHERE de.trip_id = $1
+            ORDER BY de.occurred_at ASC
+        `, [tripId]);
+        res.json({ tripId, count: result.rows.length, events: result.rows });
+    } catch (err) {
+        console.error('[GET /driver/trips/:id/risk-events] Error:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
  * Nhận từ fleet-control namespace khi simulator báo xe đã về tới depot.
  * Tra pending trip tương ứng, báo tiếp cho đúng driver qua /driver namespace.
  */

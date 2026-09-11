@@ -249,6 +249,40 @@ tripsRouter.post('/:id/abort', async (req, res) => {
 });
 
 /**
+ * POST /api/trips/:id/pickup-eta
+ * Goi boi run_fleet.py ngay sau khi tinh duoc ETA that (da nhan safety
+ * factor) cho 1 trip 'manual' dang duoc xe di don - luu pickup_deadline_at
+ * de GET /trips/current dung timeout DONG theo khoang cach thuc te, thay
+ * vi hang so PENDING_TRIP_TIMEOUT_MINUTES co dinh (khong hop ly cho xe
+ * cach xa vai chuc km). Neu chua nhan duoc ETA nay (pickup_deadline_at
+ * con null), GET /trips/current KHONG duoc coi la qua han - tranh giet
+ * trip truoc khi kip tinh xong.
+ */
+tripsRouter.post('/:id/pickup-eta', async (req, res) => {
+    const tripId = parseInt(req.params.id, 10);
+    const { etaSeconds } = req.body;
+    if (Number.isNaN(tripId)) return res.status(400).json({ error: 'tripId không hợp lệ' });
+    if (typeof etaSeconds !== 'number' || etaSeconds <= 0) {
+        return res.status(400).json({ error: 'etaSeconds phải là số dương' });
+    }
+    try {
+        const result = await pool.query(
+            `UPDATE trips SET pickup_deadline_at = now() + ($2 || ' seconds')::interval
+             WHERE trip_id = $1 AND scenario = 'manual' AND status = 'pending'
+             RETURNING trip_id, pickup_deadline_at`,
+            [tripId, etaSeconds]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: `Trip #${tripId} không tồn tại hoặc không còn pending` });
+        }
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('[POST /trips/:id/pickup-eta] Error:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
  * GET /api/trips
  * Danh sách chuyến đi, filter theo driverId/vehicleId/status
  * Query params: driverId, vehicleId, status, limit (default 20)
