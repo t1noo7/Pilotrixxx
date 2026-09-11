@@ -712,6 +712,7 @@ export default function FleetMap() {
         const byId = {};
         for (const v of res.data) byId[v.vehicle_id] = v;
         setVehicles(byId);
+        setError("");
       })
       .catch((err) =>
         setError(
