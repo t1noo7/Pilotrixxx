@@ -10,15 +10,7 @@ import { uploadAvatar, deleteAvatar } from '../services/supabaseStorage.js';
 
 export const driverTripsRouter = express.Router();
 
-// Neu trip 'pending' qua thoi gian nay ma van chua co vehicle_ready_at
-// (khong ai bao xe toi/that bai ca) - coi nhu "mo coi": rat co the do
-// run_fleet.py bi kill/crash giua chung, khong con ai dieu xe hay bao
-// tin hieu gi nua. KHONG dung chung voi ETA (ETA la thoi gian xe DANG DI
-// CHUYEN toi driver, con cai nay la nguong xe DUNG YEN khong nhuc nhich
-// tu dau toi gio) - 10 phut la muc hop ly thuc te (tac duong lau thi
-// driver thuong chu dong doi xe khac, khong doi qua 10 phut).
-const PENDING_TRIP_TIMEOUT_MINUTES = 10;
-// Khac han nhanh tren: xe DA toi noi (vehicle_ready_at da set) nhung
+// Xe DA toi noi (vehicle_ready_at da set) nhung
 // driver CHUA bam "Bat dau chuyen di". Khong lien quan gi toi run_fleet.py
 // song/chet nua (xe da dung yen san roi) - chi la driver cho qua lau.
 // Threshold tinh tu vehicle_ready_at, KHONG phai created_at.
@@ -179,7 +171,7 @@ driverTripsRouter.get('/trips/current', async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT t.trip_id, t.vehicle_id, t.started_at, t.scenario, t.status,
-                    t.vehicle_ready_at, t.created_at,
+                    t.vehicle_ready_at, t.created_at, t.pickup_deadline_at,
                     t.demo_mode, t.dest_latitude, t.dest_longitude,
                     t.pickup_latitude, t.pickup_longitude,
                     v.license_plate, v.model, v.vehicle_type,
@@ -199,8 +191,7 @@ driverTripsRouter.get('/trips/current', async (req, res) => {
         // luon o day - GET /trips/current la noi app CHAC CHAN se goi lai
         // moi lan mo/mount lai man hinh waiting, khong can them cron rieng.
         if (trip && trip.status === 'pending' && !trip.vehicle_ready_at) {
-            const ageMinutes = (Date.now() - new Date(trip.created_at).getTime()) / 60000;
-            if (ageMinutes > PENDING_TRIP_TIMEOUT_MINUTES) {
+            if (trip.pickup_deadline_at && Date.now() > new Date(trip.pickup_deadline_at).getTime()) {
                 await pool.query(
                     `UPDATE trips SET status = 'aborted', ended_at = now()
                      WHERE trip_id = $1 AND status = 'pending'`,
@@ -210,10 +201,25 @@ driverTripsRouter.get('/trips/current', async (req, res) => {
                 // pending -> da tung ban vehicle:position, dashboard dang
                 // hien "online". Bao ngay ve offline, khong doi refetch 30s.
                 io.emit('trip:completed', { tripId: trip.trip_id, vehicleId: trip.vehicle_id, status: 'aborted' });
+                // FIX: truoc day chi io.emit bao dashboard, KHONG bao Python -
+                // run_fleet.py van tuong xe dang di don, chay het route con lai
+                // (bug thuc te da gap: mat mang ~10p -> app tu abort, nhung
+                // terminal Python van log telemetry chay tiep cho het chang).
+                // Ap dung dung pattern da chay OK ben POST /trips/:id/cancel:
+                // abort luon trip 'reposition' song song + bao fleetControlNamespace
+                // de Python .set() stop_event, dung thread lai xe giua chung.
+                const repoRes1 = await pool.query(
+                    `UPDATE trips SET status = 'aborted', ended_at = now()
+                     WHERE vehicle_id = $1 AND scenario = 'reposition' AND status IN ('ongoing', 'pending')
+                     RETURNING trip_id`,
+                    [trip.vehicle_id]
+                );
+                if (repoRes1.rows.length > 0) {
+                    fleetControlNamespace.emit('vehicle:returned', { vehicleId: trip.vehicle_id, tripId: repoRes1.rows[0].trip_id });
+                }
                 console.log(
-                    `[GET /driver/trips/current] Trip #${trip.trip_id} pending qua ` +
-                    `${PENDING_TRIP_TIMEOUT_MINUTES} phut khong co vehicle_ready_at - ` +
-                    `tu abort (nghi ngo run_fleet.py da chet).`
+                    `[GET /driver/trips/current] Trip #${trip.trip_id} da qua ` +
+                    `pickup_deadline_at (${trip.pickup_deadline_at}) - tu abort.`
                 );
                 return res.json(null);
             }
@@ -231,6 +237,20 @@ driverTripsRouter.get('/trips/current', async (req, res) => {
                 // reposition that -> dang "online" tren dashboard. Bao
                 // ngay ve offline.
                 io.emit('trip:completed', { tripId: trip.trip_id, vehicleId: trip.vehicle_id, status: 'aborted' });
+                // FIX: cung ly do nhanh tren - xe da toi diem don (vehicle_ready_at
+                // da set) nghia la reposition trip da/dang o trang thai ongoing/pending,
+                // can abort + bao Python biet de dung han (khong con thread nao chay
+                // o nhanh nay vi run_simulation() da return, nhung van can bao trong
+                // truong hop dang lo ngay giua reposition khac).
+                const repoRes2 = await pool.query(
+                    `UPDATE trips SET status = 'aborted', ended_at = now()
+                     WHERE vehicle_id = $1 AND scenario = 'reposition' AND status IN ('ongoing', 'pending')
+                     RETURNING trip_id`,
+                    [trip.vehicle_id]
+                );
+                if (repoRes2.rows.length > 0) {
+                    fleetControlNamespace.emit('vehicle:returned', { vehicleId: trip.vehicle_id, tripId: repoRes2.rows[0].trip_id });
+                }
                 console.log(
                     `[GET /driver/trips/current] Trip #${trip.trip_id} - xe da toi ` +
                     `nhung driver khong nhan qua ${PICKUP_WAIT_TIMEOUT_MINUTES} phut - tu abort.`
