@@ -166,6 +166,23 @@ def abort_trip(trip_id: int):
         print(f"[abort_trip] Khong abort duoc trip {trip_id}: {e}")
 
 
+def report_pickup_eta(manual_trip_id: int, eta_seconds: float):
+    """Bao ETA that (da nhan safety factor) ve backend cho trip 'manual' -
+    backend luu thanh pickup_deadline_at, dung de GET /trips/current tinh
+    timeout DONG theo khoang cach thuc thay vi hang so co dinh. Loi o day
+    KHONG duoc lam crash ca reposition - chi print canh bao va tiep tuc,
+    giong tinh than cua abort_trip() (duong cuu vot cuoi cung)."""
+    try:
+        url = f"{BACKEND_URL}/api/trips/{manual_trip_id}/pickup-eta"
+        _post_with_retry(url, json_body={"etaSeconds": eta_seconds})
+    except Exception as e:
+        print(
+            f"[report_pickup_eta] Khong bao duoc ETA cho trip {manual_trip_id}: {e} "
+            f"- trip nay se KHONG bi auto-abort theo khoang cach (van con "
+            f"PICKUP_WAIT_TIMEOUT_MINUTES co dinh sau khi xe toi noi de chan)."
+        )
+
+
 def build_mqtt_client(client_id_suffix: str) -> mqtt.Client:
     """Tao MQTT client da connect den HiveMQ Cloud (TLS)."""
     client = mqtt.Client(
@@ -188,6 +205,7 @@ def run_simulation(
     start_lat: float | None = None,
     start_lng: float | None = None,
     immediate_target: bool = False,
+    manual_trip_id: int | None = None,
 ):
     prefix = log_prefix or device_ident
     if target_box is None:
@@ -245,6 +263,8 @@ def run_simulation(
                 f"[{prefix}] ETA that tu OSRM: {route.last_eta_seconds:.0f}s, "
                 f"he so an toan x{safety_factor:.2f} -> duration={duration}s."
             )
+            if manual_trip_id is not None:
+                report_pickup_eta(manual_trip_id, duration)
         else:
             # Trip patrol binh thuong (safe/moderate/dangerous) - giu random
             # de da dang du lieu ML. Cung la fallback neu OSRM loi luc

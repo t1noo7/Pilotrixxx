@@ -22,9 +22,19 @@ import socketio
 
 from config import BACKEND_URL, DATABASE_URL, FLEET_CONTROL_SECRET
 from simulator import run_simulation, start_trip, end_trip, abort_trip
+from datetime import datetime, timezone
 
 SCENARIOS = ["safe", "moderate", "dangerous"]
 
+# PHAI KHOP CHINH XAC voi PICKUP_WAIT_TIMEOUT_MINUTES trong
+# backend/src/routes/driverTrips.js - dung chung 1 nguong, KHONG tu dat
+# nguong rieng ben Python. Dong bo tay - doi 1 ben nho doi ca 2.
+PICKUP_WAIT_TIMEOUT_MINUTES = 10
+
+# Luu ban sao 'fleet' de reconcile_aborted_repositions() truy cap duoc -
+# connect()/connect_error() la @sio.event dinh nghia O NGOAI register_handlers()
+# nen khong "thay" duoc bien fleet local trong main() qua closure.
+fleet_cache: list[dict] = []
 running = {}  # device_ident -> {"thread": Thread, "stop_event": Event}
 # vehicle_id -> Event - RIENG cho nhanh "xe dang dung yen, di don ngay"
 # (immediate_target=True trong relocate_then_release). Nhanh nay TRUOC DAY
@@ -155,22 +165,36 @@ def get_vehicle_position(vehicle_id: int) -> tuple[float | None, float | None]:
     return row if row else (None, None)
 
 
-def get_vehicles_with_active_manual_trip() -> set[int]:
-    """Vehicle_id nao dang co trip 'manual' o trang thai pending/ongoing tu
-    TRUOC khi run_fleet.py restart - TUYET DOI khong duoc spawn patrol cho
-    xe nay luc khoi dong. Neu khong se tao ra 2 "chuyen" song song cho cung
-    1 xe vat ly: 1 ben la trip manual dang cho driver (dung yen/hoac driver
-    dang tu lai), 1 ben la patrol moi tu sinh chay lung tung - patrol nay
-    de telemetry len lam sai lech vi tri hien thi cho driver (bug da gap:
-    xe "tu di" tren map cho waiting.tsx)."""
+def get_active_manual_trips() -> list[dict]:
+    """Trip 'manual' dang pending/ongoing tu TRUOC khi run_fleet.py restart -
+    lay DU THONG TIN (khac ham cu chi tra vehicle_id) de main() phan biet
+    dung 3 truong hop: (1) da qua han - KHONG tu abort o day, de backend tu
+    lam o lan GET /trips/current tiep theo tu mobile (giu dung 1 nguon su
+    that duy nhat cho quyet dinh "qua han"), (2) da toi diem don, dang cho
+    driver bam 'Bat dau chuyen' - khong can lam gi, (3) dang tren duong,
+    chua qua han - resume bang cach goi lai relocate_then_release() y het
+    luc nhan 'vehicle:requested' binh thuong (tai dung toan bo logic tinh
+    ETA/budget da co san, khong viet lai gi moi)."""
     pool = _get_pool()
     conn = pool.getconn()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "select vehicle_id from trips where status in ('pending','ongoing') and scenario = 'manual'"
+                """select trip_id, vehicle_id, created_at, vehicle_ready_at,
+                          pickup_latitude, pickup_longitude, pickup_deadline_at
+                   from trips
+                   where status in ('pending', 'ongoing') and scenario = 'manual'"""
             )
-            return {row[0] for row in cur.fetchall()}
+            cols = [
+                "trip_id",
+                "vehicle_id",
+                "created_at",
+                "vehicle_ready_at",
+                "pickup_latitude",
+                "pickup_longitude",
+                "pickup_deadline_at",
+            ]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
     finally:
         pool.putconn(conn)
 
@@ -204,7 +228,11 @@ def start_vehicle(car: dict):
 
 
 def relocate_then_release(
-    device_ident: str, vehicle_id: int, target_lat: float, target_lng: float
+    device_ident: str,
+    vehicle_id: int,
+    target_lat: float,
+    target_lng: float,
+    manual_trip_id: int | None = None,
 ):
     """Dua xe ve don driver tai vi tri driver chon (target_lat/lng) -
     xu ly 2 truong hop: xe dang co thread chay (dang lang thang/chay
@@ -281,6 +309,7 @@ def relocate_then_release(
             start_lat=cur_lat,
             start_lng=cur_lng,
             immediate_target=True,
+            manual_trip_id=manual_trip_id,
         )
         if target_box.get("reached"):
             print(f"[fleet] Xe {device_ident} da toi noi, san sang cho driver.")
@@ -328,6 +357,7 @@ def register_handlers(fleet: list[dict]):
         threading.Thread(
             target=relocate_then_release,
             args=(device_ident, vehicle_id, data["pickupLat"], data["pickupLng"]),
+            kwargs={"manual_trip_id": int(data["tripId"])},
             daemon=True,
         ).start()
 
@@ -370,9 +400,75 @@ def register_handlers(fleet: list[dict]):
     sio.on("vehicle:returned", on_returned, namespace="/fleet-control")
 
 
+def reconcile_aborted_repositions():
+    """Chay DUNG 1 LAN moi khi (re)ket noi toi /fleet-control - va lo hong
+    cua pattern 'fire-and-forget'. CHI xet trip vua bi abort GAN DAY (trong
+    RECONCILE_WINDOW_MINUTES phut) - KHONG duoc bo qua dieu kien nay, neu
+    khong se khop nham voi trip reposition cu tu rat lau, gay stop_event bi
+    set() SAI cho 1 thread patrol moi hoan toan khong lien quan (bug thuc te
+    da gap: xe dang patrol binh thuong bi tuong nham la "vua bi huy giua
+    chung", goi head_to_location(None, None) -> crash).
+
+    Ngoai gioi han thoi gian, con check them target_box["lat"] khac None -
+    day la tin hieu DUY NHAT phan biet "thread dang thuc su reposition" voi
+    "thread patrol binh thuong": target_box chi duoc gan toa do that trong
+    relocate_then_release() khi CO redirect that xay ra."""
+    time.sleep(1)
+
+    with lock:
+        candidate_vehicle_ids = set(active_repositions.keys())
+        candidate_vehicle_ids |= {
+            entry["car"]["vehicle_id"]
+            for entry in running.values()
+            if entry["target_box"].get("lat") is not None
+        }
+
+    if not candidate_vehicle_ids:
+        return
+
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """select vehicle_id from trips
+                   where scenario = 'reposition' and status = 'aborted'
+                   and ended_at > now() - interval '15 minutes'
+                   and vehicle_id = any(%s)""",
+                (list(candidate_vehicle_ids),),
+            )
+            aborted_vehicle_ids = {row[0] for row in cur.fetchall()}
+    finally:
+        pool.putconn(conn)
+
+    if not aborted_vehicle_ids:
+        return
+
+    print(
+        f"[fleet] Reconcile sau reconnect: phat hien {len(aborted_vehicle_ids)} "
+        f"xe co reposition da bi abort trong DB nhung van dang chay (nghi ngo lo "
+        f"su kien 'vehicle:returned' luc mat mang) - tu dung: {aborted_vehicle_ids}"
+    )
+    for vehicle_id in aborted_vehicle_ids:
+        with lock:
+            immediate_stop_event = active_repositions.get(vehicle_id)
+        if immediate_stop_event is not None:
+            immediate_stop_event.set()
+
+        device_ident = device_for_vehicle(vehicle_id, fleet_cache)
+        if device_ident is not None:
+            with lock:
+                entry = running.get(device_ident)
+            if entry is not None and entry["target_box"].get("lat") is not None:
+                entry["stop_event"].set()
+
+
 @sio.event(namespace="/fleet-control")
 def connect():
     print("[fleet] Da ket noi toi /fleet-control.")
+    # Chay o thread rieng - khong chan handshake cua sio, va cung khong
+    # can chan (blocking) vong lap chinh cua fleet.
+    threading.Thread(target=reconcile_aborted_repositions, daemon=True).start()
 
 
 @sio.event(namespace="/fleet-control")
@@ -384,15 +480,17 @@ def main():
     init_db_pool()
     cleanup_orphaned_trips()
     fleet = get_fleet_mapping()
+    global fleet_cache
+    fleet_cache = fleet
 
-    busy_vehicle_ids = get_vehicles_with_active_manual_trip()
+    active_manual_trips = get_active_manual_trips()
+    busy_vehicle_ids = {t["vehicle_id"] for t in active_manual_trips}
     if busy_vehicle_ids:
         print(
             f"[fleet] {len(busy_vehicle_ids)} xe dang co trip manual pending/ongoing "
             f"tu truoc khi restart - KHONG patrol cho cac xe nay: {busy_vehicle_ids}"
         )
 
-    socket_url = BACKEND_URL.replace("http://", "ws://").replace("https://", "wss://")
     register_handlers(fleet)
 
     sio.connect(
@@ -400,6 +498,81 @@ def main():
         namespaces=["/fleet-control"],
         auth={"secret": FLEET_CONTROL_SECRET},
     )
+
+    # Phan loai + resume cho tung xe dang co trip manual do - PHAI sau khi
+    # sio.connect() xong, vi relocate_then_release() emit vehicle:ready/
+    # vehicle:failed qua sio khi hoan tat.
+    now = datetime.now(timezone.utc)
+    resumed_count = 0
+    for trip in active_manual_trips:
+        device_ident = device_for_vehicle(trip["vehicle_id"], fleet)
+        if device_ident is None:
+            continue
+
+        # Case 2: da toi diem don, dang cho driver bam nut - hoac Case 1b:
+        # da toi noi nhung cho qua lau (qua PICKUP_WAIT_TIMEOUT_MINUTES).
+        if trip["vehicle_ready_at"] is not None:
+            wait_minutes = (now - trip["vehicle_ready_at"]).total_seconds() / 60
+            if wait_minutes > PICKUP_WAIT_TIMEOUT_MINUTES:
+                print(
+                    f"[fleet] Xe {device_ident}: trip manual #{trip['trip_id']} da toi "
+                    f"noi qua {PICKUP_WAIT_TIMEOUT_MINUTES} phut - da qua han, de backend "
+                    f"tu abort o lan GET /trips/current tiep theo, khong resume."
+                )
+            else:
+                print(
+                    f"[fleet] Xe {device_ident}: da toi diem don (trip manual "
+                    f"#{trip['trip_id']}), dang cho driver bam 'Bat dau chuyen' - "
+                    f"khong can resume."
+                )
+            continue
+
+        # Case 1a: da qua han THEO DUNG pickup_deadline_at (tinh dong theo
+        # ETA that tu OSRM, luu boi report_pickup_eta() o lan tinh truoc) -
+        # KHONG dung nguong co dinh nua (ly do doi sang timeout dong: xe
+        # cach xa vai chuc km can ETA hop ly hon con so 10 phut cung nhac).
+        # pickup_deadline_at = None nghia la LAN TRUOC chua kip bao ETA ve
+        # (vd Python crash giua chung truoc khi tinh xong OSRM) - trong
+        # truong hop nay KHONG the ket luan da qua han, nen cu resume binh
+        # thuong (Case 3), ETA that se duoc tinh lai + bao ve ngay trong
+        # lan resume nay.
+        if trip["pickup_deadline_at"] is not None and now > trip["pickup_deadline_at"]:
+            print(
+                f"[fleet] Xe {device_ident}: trip manual #{trip['trip_id']} da qua "
+                f"pickup_deadline_at ({trip['pickup_deadline_at']}) - da qua han, de "
+                f"backend tu abort o lan GET /trips/current tiep theo, khong resume."
+            )
+            continue
+
+        if trip["pickup_latitude"] is None or trip["pickup_longitude"] is None:
+            print(
+                f"[fleet] Xe {device_ident}: trip manual #{trip['trip_id']} thieu toa "
+                f"do don - khong the resume, bo qua."
+            )
+            continue
+
+        # Case 3: dang tren duong, chua qua han - resume that su.
+        print(
+            f"[fleet] Xe {device_ident}: dang resume reposition toi diem don cho trip "
+            f"manual #{trip['trip_id']} (bi ngat quang do run_fleet.py vua restart)."
+        )
+        threading.Thread(
+            target=relocate_then_release,
+            args=(
+                device_ident,
+                trip["vehicle_id"],
+                trip["pickup_latitude"],
+                trip["pickup_longitude"],
+            ),
+            kwargs={"manual_trip_id": trip["trip_id"]},
+            daemon=True,
+        ).start()
+        resumed_count += 1
+
+    if resumed_count > 0:
+        # Cho cac thread resume kip lay _db_pool connection truoc khi vong
+        # lap patrol ben duoi bat dau tranh chap connection dot ngot.
+        time.sleep(1)
 
     started_count = 0
     for car in fleet:
