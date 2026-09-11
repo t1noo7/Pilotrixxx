@@ -14,17 +14,10 @@ import "leaflet/dist/leaflet.css";
 import { apiClient } from "../api/client.js";
 import { socket } from "../api/socket.js";
 import { SATELLITE_LAYERS, VIS_PALETTE } from "./satelliteLayers.js";
-
-// Màu + nhãn cho lớp "Driving Risk" - marker sự kiện nguy hiểm trên bản đồ.
-// event_type phải khớp đúng giá trị enum trong DB (bảng driver_events).
-const RISK_EVENT_STYLE = {
-  hard_brake: { color: "#f87171", label: "Phanh gấp" },
-  overspeed: { color: "#fb923c", label: "Vượt tốc độ" },
-  rapid_accel: { color: "#c084fc", label: "Tăng tốc đột ngột" },
-  sharp_turn: { color: "#fbbf24", label: "Cua gắt" },
-  lane_drift: { color: "#38bdf8", label: "Lấn làn" },
-};
-const DEFAULT_EVENT_STYLE = { color: "#94a3b8", label: "Sự kiện khác" };
+import {
+  RISK_EVENT_STYLE,
+  DEFAULT_EVENT_STYLE,
+} from "../constants/riskEvents.js";
 
 const HANOI_CENTER = [21.0285, 105.8542];
 
