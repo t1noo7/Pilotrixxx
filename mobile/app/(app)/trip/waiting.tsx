@@ -109,6 +109,9 @@ export default function WaitingScreen() {
     longitude: number | null;
   } | null>(null);
   const vehicleReadyAtMsRef = useRef<number | null>(null);
+  const [pickupDeadlineAtMs, setPickupDeadlineAtMs] = useState<number | null>(
+    null,
+  );
 
   const topPanelOpacity = useRef(new Animated.Value(1)).current;
   const topPanelTranslateY = useRef(new Animated.Value(0)).current;
@@ -136,6 +139,11 @@ export default function WaitingScreen() {
           return;
         }
         await savePendingTripId(current.trip_id);
+        setPickupDeadlineAtMs(
+          current.pickup_deadline_at
+            ? new Date(current.pickup_deadline_at).getTime()
+            : null,
+        );
         if (current.vehicle_ready_at) {
           setReady(true);
           vehicleReadyAtMsRef.current = new Date(
@@ -233,6 +241,71 @@ export default function WaitingScreen() {
       clearTimeout(timer);
     };
   }, [ready, tripId]);
+
+  // Truong hop hydrate xong ma pickup_deadline_at van null (Python chua
+  // kip bao ETA ve - thuong chi vai giay sau khi dat xe) - tu fetch lai
+  // vai lan CO GIOI HAN (khong phai polling vo han) cho toi khi biet duoc
+  // deadline, roi dung han. 6 lan x 5s = toi da 30s cho.
+  useEffect(() => {
+    if (hydrating || ready || pickupDeadlineAtMs != null) return;
+    let mounted = true;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 6;
+    const RETRY_MS = 5_000;
+
+    const timer = setInterval(async () => {
+      attempts += 1;
+      try {
+        const current = await getCurrentTrip();
+        if (!mounted) return;
+        if (current?.pickup_deadline_at) {
+          setPickupDeadlineAtMs(new Date(current.pickup_deadline_at).getTime());
+          clearInterval(timer);
+        }
+      } catch (err: any) {
+        console.log("pickup-deadline poll error:", err.message);
+      }
+      if (attempts >= MAX_ATTEMPTS) clearInterval(timer);
+    }, RETRY_MS);
+
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+  }, [hydrating, ready, pickupDeadlineAtMs, tripId]);
+
+  // Sinh doi voi effect PICKUP_WAIT_TIMEOUT_MS o tren - nhung cho nhanh
+  // CHUA toi noi don. Hen 1 LAN DUY NHAT dung tai pickup_deadline_at (da
+  // tinh dong theo khoang cach thuc tu backend) - khong polling lien tuc.
+  useEffect(() => {
+    if (ready || pickupDeadlineAtMs == null) return;
+    let mounted = true;
+
+    const fireAt = pickupDeadlineAtMs + CHECK_BUFFER_MS;
+    const delay = Math.max(0, fireAt - Date.now());
+
+    const timer = setTimeout(async () => {
+      try {
+        const current = await getCurrentTrip();
+        if (!mounted) return;
+        if (!current || String(current.trip_id) !== String(tripId)) {
+          await clearPendingTripId();
+          Alert.alert(
+            "Chuyến không còn hợp lệ",
+            "Chuyến trước đó của bạn đã bị huỷ do quá thời gian chờ xe tới điểm đón. Vui lòng đặt xe khác.",
+            [{ text: "OK", onPress: () => router.replace("/(app)/vehicles") }],
+          );
+        }
+      } catch (err: any) {
+        console.log("pending-timeout check error:", err.message);
+      }
+    }, delay);
+
+    return () => {
+      mounted = false;
+      clearTimeout(timer);
+    };
+  }, [ready, pickupDeadlineAtMs, tripId]);
 
   const livePosition = useVehicleLiveTracking(tripId, initialVehiclePos);
   const livePositionRef = useRef(livePosition);

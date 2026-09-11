@@ -48,6 +48,7 @@ export interface CurrentTrip {
   vehicle_longitude: number | null;
   pickup_latitude: number | null;
   pickup_longitude: number | null;
+  pickup_deadline_at: string | null; // null = chua tinh ETA that (Python chua bao ve) - chua duoc coi la qua han
 }
 
 export interface RiskScore {
