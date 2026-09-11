@@ -1,6 +1,13 @@
 import { useCallback, useState } from "react";
-import { View, Text, FlatList, StyleSheet, RefreshControl } from "react-native";
-import { useFocusEffect } from "expo-router";
+import {
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  RefreshControl,
+  TouchableOpacity,
+} from "react-native";
+import { useFocusEffect, router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { getTripHistory } from "../../../src/api/driverTrips";
 import LoadingOverlay from "../../../src/components/LoadingOverlay";
@@ -87,7 +94,12 @@ export default function HistoryScreen() {
         renderItem={({ item }) => {
           const isAborted = item.status === "aborted" || !item.final_risk_level;
           return (
-            <View style={styles.card}>
+            <TouchableOpacity
+              style={styles.card}
+              activeOpacity={isAborted ? 1 : 0.7}
+              disabled={isAborted}
+              onPress={() => router.push(`/(app)/replay/${item.trip_id}`)}
+            >
               <View style={styles.iconCircle}>
                 <VehicleIcon type={item.vehicle_type} height={30} />
               </View>
@@ -121,7 +133,7 @@ export default function HistoryScreen() {
                   </Text>
                 </View>
               )}
-            </View>
+            </TouchableOpacity>
           );
         }}
       />

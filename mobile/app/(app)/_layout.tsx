@@ -31,6 +31,17 @@ export default function AppLayout() {
             gestureEnabled: false,
           }}
         />
+        {/* Man xem lai chuyen da xong - khac trip/[id] (dang chay live): day chi
+    la xem lai, cho phep vuot tay dismiss binh thuong, co header + nut back
+    hien thi ro (khong che tab bar vinh vien nhu man live). */}
+        <Stack.Screen
+          name="replay/[id]"
+          options={{
+            headerShown: true,
+            title: "Xem lại chuyến đi",
+            presentation: "card",
+          }}
+        />
       </Stack>
     </TripProvider>
   );

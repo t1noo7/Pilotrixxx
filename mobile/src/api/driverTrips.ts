@@ -207,3 +207,45 @@ export async function uploadAvatar(
   );
   return data;
 }
+
+export interface TelemetryPoint {
+  telemetry_id: string;
+  ts: string;
+  lat: number;
+  lng: number;
+  speed: number | null;
+  speed_limit: number | null;
+  accel_x: number | null;
+  accel_y: number | null;
+  accel_z: number | null;
+  brake_intensity: number | null;
+  heading: number | null;
+  position_valid: boolean;
+  satellites: number | null;
+}
+
+export async function getTripTelemetry(
+  tripId: string,
+): Promise<{ tripId: string; count: number; points: TelemetryPoint[] }> {
+  const { data } = await apiClient.get(`/api/driver/trips/${tripId}/telemetry`);
+  return data;
+}
+
+export interface RiskEventPoint {
+  event_id: string;
+  event_type: string;
+  severity: string;
+  occurred_at: string;
+  metric_value: any;
+  lat: number;
+  lng: number;
+}
+
+export async function getTripRiskEvents(
+  tripId: string,
+): Promise<{ tripId: string; count: number; events: RiskEventPoint[] }> {
+  const { data } = await apiClient.get(
+    `/api/driver/trips/${tripId}/risk-events`,
+  );
+  return data;
+}
