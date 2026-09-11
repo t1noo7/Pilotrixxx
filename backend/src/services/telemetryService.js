@@ -34,7 +34,13 @@ export async function handleTelemetryMessage(topic, payload) {
     try {
         await client.query('BEGIN');
 
-        // 1. INSERT vao telemetry_raw - RETURNING id de Rule Engine dung lai
+        // 1. INSERT vao telemetry_raw - RETURNING id de Rule Engine dung lai.
+        // ON CONFLICT DO NOTHING: xu ly truong hop 2 backend (local + Render)
+        // cung subscribe 1 topic MQTT, nhan trung message (vd sau khi mot
+        // client (clean: false) offline lau roi reconnect, broker xa lai het
+        // backlog da tung duoc client kia insert thanh cong roi) - day la KET
+        // QUA BINH THUONG cua viec chay song song 2 consumer, khong phai bug,
+        // unique constraint dang lam dung viec cua no.
         const insertRes = await client.query(
             `INSERT INTO telemetry_raw (
         trip_id, vehicle_id, ts,
@@ -53,6 +59,7 @@ export async function handleTelemetryMessage(topic, payload) {
         $17, $18,
         $19
       )
+      ON CONFLICT (vehicle_id, ts) DO NOTHING
       RETURNING id`,
             [
                 tripId, vehicleId, ts,
@@ -64,6 +71,15 @@ export async function handleTelemetryMessage(topic, payload) {
                 JSON.stringify(payload),
             ]
         );
+
+        // Trung key -> DO NOTHING khong tra ve row nao. Message nay coi nhu
+        // "da xu ly roi tu truoc" (do consumer khac lam) - rollback transaction
+        // rong (khong co gi de commit) va dung o day, KHONG chay tiep Rule
+        // Engine/emit cho cung 1 telemetry point 2 lan.
+        if (insertRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return;
+        }
         const telemetryId = insertRes.rows[0].id;
 
         // 2. UPDATE vehicles - cache vi tri/trang thai moi nhat
