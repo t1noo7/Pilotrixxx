@@ -338,7 +338,7 @@ tripsRouter.get('/:id', async (req, res) => {
             SELECT
                 t.*,
                 d.full_name AS driver_name, d.license_number,
-                v.license_plate, v.model,
+                v.license_plate, v.model, v.vehicle_type,
                 rs.final_risk_score, rs.final_risk_level,
                 rs.lr_risk_score, rs.rf_risk_score
             FROM trips t
