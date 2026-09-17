@@ -446,7 +446,7 @@ const VEHICLE_DISPLAY_SIZE = {
 //   đúng phản hồi thực tế) - thay bằng xám hoá toàn thân xe (grayscale)
 //   + giảm opacity + 1 khối tròn xám đậm làm nền phía sau, tạo cảm giác
 //   "dày" rõ ràng, tương phản mạnh với xe online có màu.
-function buildIcon(vehicleType, glowColor, isOffline, pulsing) {
+export function buildIcon(vehicleType, glowColor, isOffline, pulsing) {
   const { viewBox, body } = (VEHICLE_SVG_BUILDERS[vehicleType] || sedanSvg)();
   const [w, h] = VEHICLE_DISPLAY_SIZE[vehicleType] || [26, 39];
   const rotateWrapOpen = `<div class="vehicle-rotate-wrap" style="width: 100%; height: 100%; transform: rotate(0deg); transition: transform 0.4s linear;">`;

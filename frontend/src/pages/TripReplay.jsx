@@ -16,6 +16,7 @@ import {
   RISK_EVENT_STYLE,
   DEFAULT_EVENT_STYLE,
 } from "../constants/riskEvents.js";
+import { buildIcon } from "./FleetMap.jsx";
 
 const RISK_LABEL = {
   safe: "An toàn",
@@ -45,32 +46,35 @@ function formatMMSS(totalSeconds) {
   return `${m}:${s}`;
 }
 
-function FitBounds({ positions }) {
+function FollowVehicle({ playing, position, allPositions }) {
   const map = useMap();
   useEffect(() => {
-    if (positions.length === 0) return;
-    map.fitBounds(positions, { padding: [40, 40] });
-  }, [positions, map]);
+    if (playing && position) {
+      map.panTo(position, { animate: true, duration: 0.3 });
+    } else if (!playing && allPositions.length > 0) {
+      map.fitBounds(allPositions, { padding: [40, 40] });
+    }
+  }, [playing, position, allPositions, map]);
   return null;
 }
 
-function carIcon(heading) {
-  return L.divIcon({
-    className: "",
-    html: `<div style="
-      width: 22px; height: 22px; border-radius: 50%;
-      background: #3dd6c4; border: 2px solid #0b1220;
-      display: flex; align-items: center; justify-content: center;
-      transform: rotate(${heading || 0}deg);
-      box-shadow: 0 0 8px rgba(61,214,196,0.7);
-    ">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="#0b1220">
-        <path d="M12 2 L19 20 L12 16 L5 20 Z" />
-      </svg>
-    </div>`,
-    iconSize: [22, 22],
-    iconAnchor: [11, 11],
-  });
+// Tai dung buildIcon() tu FleetMap.jsx - nhung KHONG nhung heading vao icon
+// (giong nguyen tac cua VehicleMarker ben do): xoay qua DOM ref rieng, tranh
+// Leaflet phai tao lai icon (setIcon) moi lan progress tick doi heading,
+// giu duoc animation glow muot khong bi reset giua chung.
+function ReplayVehicleMarker({ position, heading, vehicleType }) {
+  const markerRef = useRef(null);
+  const icon = useMemo(
+    () => buildIcon(vehicleType, "#3dd6c4", false, true),
+    [vehicleType],
+  );
+  useEffect(() => {
+    const marker = markerRef.current;
+    const el = marker && marker.getElement ? marker.getElement() : null;
+    const rotWrap = el ? el.querySelector(".vehicle-rotate-wrap") : null;
+    if (rotWrap) rotWrap.style.transform = `rotate(${heading ?? 0}deg)`;
+  }, [heading]);
+  return <Marker ref={markerRef} position={position} icon={icon} />;
 }
 
 export default function TripReplay() {
@@ -318,7 +322,11 @@ export default function TripReplay() {
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution="&copy; OpenStreetMap contributors"
           />
-          <FitBounds positions={positions} />
+          <FollowVehicle
+            playing={playing}
+            position={current ? [current.lat, current.lng] : null}
+            allPositions={positions}
+          />
           <Polyline
             positions={positions}
             pathOptions={{ color: "#3dd6c4", weight: 3, opacity: 0.6 }}
@@ -347,9 +355,10 @@ export default function TripReplay() {
             );
           })}
           {current && (
-            <Marker
+            <ReplayVehicleMarker
               position={[current.lat, current.lng]}
-              icon={carIcon(current.heading)}
+              heading={current.heading}
+              vehicleType={trip.vehicle_type}
             />
           )}
         </MapContainer>
