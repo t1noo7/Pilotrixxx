@@ -259,6 +259,38 @@ driverTripsRouter.get('/trips/current', async (req, res) => {
             }
         }
 
+        const ONGOING_TELEMETRY_TIMEOUT_MINUTES = 10;
+
+        if (trip && trip.status === 'ongoing') {
+            const lastTelemetryMs = trip.last_telemetry_at && new Date(trip.last_telemetry_at) > new Date(trip.started_at)
+                ? new Date(trip.last_telemetry_at).getTime()
+                : new Date(trip.started_at).getTime();
+            const silentMinutes = (Date.now() - lastTelemetryMs) / 60000;
+
+            if (silentMinutes > ONGOING_TELEMETRY_TIMEOUT_MINUTES) {
+                const result = await pool.query(
+                    `UPDATE trips SET status = 'completed', ended_at = now(), ended_reason = 'timeout'
+             WHERE trip_id = $1 AND status = 'ongoing'
+             RETURNING trip_id, vehicle_id`,
+                    [trip.trip_id]
+                );
+                if (result.rows.length > 0) {
+                    const vehicleId = result.rows[0].vehicle_id;
+                    fleetControlNamespace.emit('vehicle:returned', { vehicleId, tripId: trip.trip_id });
+                    io.emit('trip:completed', { tripId: trip.trip_id, vehicleId, status: 'completed' });
+
+                    try { await generateTripSummary(trip.trip_id); } catch (e) {
+                        console.error(`[GET /driver/trips/current] summary error trip ${trip.trip_id}:`, e.message);
+                    }
+                    try { await runMlPredict(trip.trip_id); } catch (e) {
+                        console.error(`[GET /driver/trips/current] ML error trip ${trip.trip_id}:`, e.message);
+                    }
+                    console.log(`[GET /driver/trips/current] Trip #${trip.trip_id} tu ket thuc do mat tin hieu ${ONGOING_TELEMETRY_TIMEOUT_MINUTES}+ phut.`);
+                }
+                return res.json(null);
+            }
+        }
+
         res.json(trip || null);
     } catch (err) {
         console.error('[GET /driver/trips/current] Error:', err.message);
@@ -351,6 +383,29 @@ driverTripsRouter.post('/trips/:id/activate', async (req, res) => {
         res.json(result.rows[0]);
     } catch (err) {
         console.error('[POST /driver/trips/:id/activate] Error:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * GET /api/driver/trips/timeout-notice
+ * App goi 1 lan sau khi phat hien KHONG con trip dang chay (getCurrentTrip
+ * tra ve null) - kiem tra co chuyen nao vua bi CUONG CHE ket thuc do mat
+ * tin hieu (ended_reason='timeout') ma driver CHUA duoc bao khong. Dung
+ * UPDATE...RETURNING de "claim" atomic - goi 2 lan lien tiep se KHONG bao
+ * lap lai, giong pattern OTP cooldown dang dung.
+ */
+driverTripsRouter.get('/trips/timeout-notice', async (req, res) => {
+    try {
+        const result = await pool.query(
+            `UPDATE trips SET timeout_notice_shown = true
+             WHERE driver_id = $1 AND ended_reason = 'timeout' AND timeout_notice_shown = false
+             RETURNING trip_id, ended_at`,
+            [req.driver.driverId]
+        );
+        res.json(result.rows[0] || null);
+    } catch (err) {
+        console.error('[GET /driver/trips/timeout-notice] Error:', err.message);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
