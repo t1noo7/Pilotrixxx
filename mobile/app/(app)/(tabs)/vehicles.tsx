@@ -56,8 +56,13 @@ function distanceKm(
 type Coords = { latitude: number; longitude: number };
 
 export default function VehiclesScreen() {
-  const { refreshOngoingTrip, lastKnownLocation, setLastKnownLocation } =
-    useTrip();
+  const {
+    refreshOngoingTrip,
+    lastKnownLocation,
+    setLastKnownLocation,
+    timeoutNotice,
+    clearTimeoutNotice,
+  } = useTrip();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -185,6 +190,21 @@ export default function VehiclesScreen() {
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [load]),
   );
+
+  // Bao driver 1 LAN duy nhat neu chuyen truoc do bi CUONG CHE ket thuc do
+  // mat tin hieu qua lau (dien thoai het pin/sap nguon giua luc dang cho
+  // khach that) - khac voi Alert "qua thoi gian cho" o effect load() ben
+  // tren (do la case bi huy luc CON DANG CHO XE toi, chua he chay).
+  // timeoutNotice chi khac null dung 1 lan sau khi GET /trips/current phat
+  // hien + "claim" - tu clear ngay sau khi hien de khong lap lai.
+  useEffect(() => {
+    if (!timeoutNotice) return;
+    Alert.alert(
+      "Chuyến trước đã tự kết thúc",
+      "Chuyến đi trước đó của bạn đã tự kết thúc do mất tín hiệu quá lâu (có thể do hết pin hoặc mất mạng giữa chừng). Kết quả chuyến đã được lưu vào lịch sử.",
+      [{ text: "Đã hiểu", onPress: clearTimeoutNotice }],
+    );
+  }, [timeoutNotice, clearTimeoutNotice]);
 
   const onRefresh = () => {
     setRefreshing(true);

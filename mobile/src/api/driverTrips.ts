@@ -67,6 +67,14 @@ export async function activateTrip(
   return data;
 }
 
+export async function getTimeoutNotice(): Promise<{
+  trip_id: string;
+  ended_at: string;
+} | null> {
+  const { data } = await apiClient.get("/api/driver/trips/timeout-notice");
+  return data;
+}
+
 export async function endTrip(tripId: string): Promise<{
   tripId: string;
   status: string;

@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { AppState } from "react-native";
-import { getCurrentTrip } from "../api/driverTrips";
+import { getCurrentTrip, getTimeoutNotice } from "../api/driverTrips";
 import type { CurrentTrip } from "../types";
 
 type LastKnownLocation = { latitude: number; longitude: number } | null;
@@ -25,12 +25,17 @@ type TripContextValue = {
    *  fallback ve GPS that binh thuong. */
   lastKnownLocation: LastKnownLocation;
   setLastKnownLocation: (loc: LastKnownLocation) => void;
+  timeoutNotice: { tripId: string } | null;
+  clearTimeoutNotice: () => void;
 };
 
 const TripContext = createContext<TripContextValue | undefined>(undefined);
 
 export function TripProvider({ children }: { children: ReactNode }) {
   const [ongoingTrip, setOngoingTrip] = useState<CurrentTrip | null>(null);
+  const [timeoutNotice, setTimeoutNotice] = useState<{ tripId: string } | null>(
+    null,
+  );
   const [lastKnownLocation, setLastKnownLocation] =
     useState<LastKnownLocation>(null);
 
@@ -38,6 +43,16 @@ export function TripProvider({ children }: { children: ReactNode }) {
     try {
       const current = await getCurrentTrip();
       setOngoingTrip(current);
+      if (!current) {
+        // Khong con trip nao dang chay - kiem tra co bi cuong che ket
+        // thuc do mat tin hieu ma chua duoc bao khong.
+        try {
+          const notice = await getTimeoutNotice();
+          if (notice) setTimeoutNotice({ tripId: notice.trip_id });
+        } catch (e) {
+          console.log("[TripContext] getTimeoutNotice error:", e);
+        }
+      }
       return current;
     } catch (err) {
       // Không có mạng / lỗi tạm thời - KHÔNG đổi state, giữ nguyên giá trị
@@ -50,6 +65,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearOngoingTrip = useCallback(() => setOngoingTrip(null), []);
+  const clearTimeoutNotice = useCallback(() => setTimeoutNotice(null), []);
 
   // Check lúc mount + mỗi lần app quay lại foreground (vd bị chuyển qua app
   // khác/Simulator mất focus rồi quay lại) - đúng tình huống gây ra bug
@@ -71,6 +87,8 @@ export function TripProvider({ children }: { children: ReactNode }) {
         clearOngoingTrip,
         lastKnownLocation,
         setLastKnownLocation,
+        timeoutNotice,
+        clearTimeoutNotice,
       }}
     >
       {children}
