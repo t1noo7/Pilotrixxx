@@ -11,6 +11,8 @@ import {
 import { useLocalSearchParams, router } from "expo-router";
 import MapView, { Marker, Polyline, PROVIDER_DEFAULT } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
+import VehicleIcon from "../../../src/components/VehicleIcon";
+import type { VehicleType } from "../../../src/types";
 import {
   getTripTelemetry,
   getTripRiskEvents,
@@ -44,7 +46,11 @@ function formatMMSS(totalSeconds: number) {
 }
 
 export default function ReplayScreen() {
-  const { id: tripId } = useLocalSearchParams<{ id: string }>();
+  const { id: tripId, vehicleType: vehicleTypeParam } = useLocalSearchParams<{
+    id: string;
+    vehicleType?: string;
+  }>();
+  const vehicleType = (vehicleTypeParam as VehicleType) || "sedan";
   const [telemetry, setTelemetry] = useState<TelemetryPoint[]>([]);
   const [events, setEvents] = useState<RiskEventPoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -179,6 +185,29 @@ export default function ReplayScreen() {
     }),
   ).current;
 
+  // Bam camera theo xe khi dang Play, tra ve toan canh route khi dung/pause
+  // (bao gom ca luc phat het chuyen, vi setPlaying(false) o effect tick tu
+  // goi khi het progress). Dung animateCamera (khong phai animateToRegion)
+  // vi can xoay ca "heading" theo huong xe di, animateToRegion chi doi
+  // center/zoom, khong xoay goc nhin duoc.
+  useEffect(() => {
+    if (!mapRef.current) return;
+    if (playing && current) {
+      mapRef.current.animateCamera(
+        {
+          center: { latitude: current.lat, longitude: current.lng },
+          heading: current.heading ?? 0,
+        },
+        { duration: TICK_MS },
+      );
+    } else if (!playing && polylineCoords.length > 0) {
+      mapRef.current.fitToCoordinates(polylineCoords, {
+        edgePadding: { top: 60, right: 60, bottom: 60, left: 60 },
+        animated: true,
+      });
+    }
+  }, [playing, current?.lat, current?.lng, current?.heading]);
+
   if (loading)
     return <LoadingOverlay visible message="Đang tải lại chuyến đi..." />;
 
@@ -232,17 +261,25 @@ export default function ReplayScreen() {
         <Marker
           coordinate={{ latitude: current.lat, longitude: current.lng }}
           anchor={{ x: 0.5, y: 0.5 }}
-          rotation={current.heading ?? 0}
           flat
         >
-          <View style={styles.carMarker}>
-            <Ionicons name="navigate" size={16} color="#fff" />
+          <View
+            style={[
+              styles.carMarker,
+              { transform: [{ rotate: `${current.heading ?? 0}deg` }] },
+            ]}
+          >
+            <VehicleIcon type={vehicleType} height={26} />
           </View>
         </Marker>
       </MapView>
 
       <View style={styles.legend}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={styles.legendItem}>
+            <VehicleIcon type={vehicleType} height={14} />
+            <Text style={styles.legendText}>Vị trí xe</Text>
+          </View>
           {Object.entries(RISK_EVENT_STYLE).map(([type, style]) => (
             <View key={type} style={styles.legendItem}>
               <View

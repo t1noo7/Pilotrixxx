@@ -98,7 +98,12 @@ export default function HistoryScreen() {
               style={styles.card}
               activeOpacity={isAborted ? 1 : 0.7}
               disabled={isAborted}
-              onPress={() => router.push(`/(app)/replay/${item.trip_id}`)}
+              onPress={() =>
+                router.push({
+                  pathname: "/(app)/replay/[id]",
+                  params: { id: item.trip_id, vehicleType: item.vehicle_type },
+                })
+              }
             >
               <View style={styles.iconCircle}>
                 <VehicleIcon type={item.vehicle_type} height={30} />
