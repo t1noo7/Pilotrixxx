@@ -4,7 +4,7 @@ import path from 'path';
 import express from 'express';
 import { pool } from '../db.js';
 import { generateTripSummary } from '../services/tripSummaryService.js';
-import { io } from '../server.js';
+import { io, driverNamespace } from '../server.js';
 
 // Đường dẫn tới predict.py: backend/src/routes/ -> lên 3 cấp -> ml/predict.py
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -269,12 +269,20 @@ tripsRouter.post('/:id/pickup-eta', async (req, res) => {
         const result = await pool.query(
             `UPDATE trips SET pickup_deadline_at = now() + ($2 || ' seconds')::interval
              WHERE trip_id = $1 AND scenario = 'manual' AND status = 'pending'
-             RETURNING trip_id, pickup_deadline_at`,
+             RETURNING trip_id, driver_id, pickup_deadline_at`,
             [tripId, etaSeconds]
         );
         if (result.rows.length === 0) {
             return res.status(404).json({ error: `Trip #${tripId} không tồn tại hoặc không còn pending` });
         }
+        // Bao ngay cho driver qua socket - waiting.tsx dang nghe san
+        // driverNamespace o man nay, tranh phai polling cho toi khi biet
+        // duoc pickup_deadline_at (dac biet quan trong khi Python cham
+        // tra ve do vua reconnect sau mot khoang sap lau).
+        driverNamespace.to(`driver:${result.rows[0].driver_id}`).emit('pickup:eta', {
+            tripId: result.rows[0].trip_id,
+            pickupDeadlineAt: result.rows[0].pickup_deadline_at,
+        });
         res.json(result.rows[0]);
     } catch (err) {
         console.error('[POST /trips/:id/pickup-eta] Error:', err.message);

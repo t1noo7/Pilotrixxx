@@ -195,13 +195,24 @@ export default function WaitingScreen() {
       );
     };
 
+    const onPickupEta = (data: {
+      tripId: number;
+      pickupDeadlineAt: string;
+    }) => {
+      if (String(data.tripId) === String(tripId) && mounted) {
+        setPickupDeadlineAtMs(new Date(data.pickupDeadlineAt).getTime());
+      }
+    };
+
     driverSocket.on("vehicle:ready", onReady);
     driverSocket.on("vehicle:failed", onFailed);
+    driverSocket.on("pickup:eta", onPickupEta);
 
     return () => {
       mounted = false;
       driverSocket.off("vehicle:ready", onReady);
       driverSocket.off("vehicle:failed", onFailed);
+      driverSocket.off("pickup:eta", onPickupEta);
       disconnectDriverSocket();
     };
   }, [tripId]);
@@ -250,15 +261,25 @@ export default function WaitingScreen() {
     if (hydrating || ready || pickupDeadlineAtMs != null) return;
     let mounted = true;
     let attempts = 0;
-    const MAX_ATTEMPTS = 6;
-    const RETRY_MS = 5_000;
+    const MAX_ATTEMPTS = 20; // 20 lan x 15s = toi da 5 phut cho
+    const RETRY_MS = 15_000;
 
     const timer = setInterval(async () => {
       attempts += 1;
       try {
         const current = await getCurrentTrip();
         if (!mounted) return;
-        if (current?.pickup_deadline_at) {
+        if (!current || String(current.trip_id) !== String(tripId)) {
+          await clearPendingTripId();
+          Alert.alert(
+            "Chuyến không còn hợp lệ",
+            "Chuyến trước đó của bạn đã bị huỷ do quá thời gian chờ xe tới điểm đón. Vui lòng đặt xe khác.",
+            [{ text: "OK", onPress: () => router.replace("/(app)/vehicles") }],
+          );
+          clearInterval(timer);
+          return;
+        }
+        if (current.pickup_deadline_at) {
           setPickupDeadlineAtMs(new Date(current.pickup_deadline_at).getTime());
           clearInterval(timer);
         }
