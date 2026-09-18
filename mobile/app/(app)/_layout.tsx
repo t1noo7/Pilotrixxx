@@ -9,7 +9,12 @@ export default function AppLayout() {
 
   return (
     <TripProvider>
-      <Stack screenOptions={{ headerShown: false }}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          headerBackButtonDisplayMode: "minimal",
+        }}
+      >
         {/* (tabs) là route group - không xuất hiện trong URL, chỉ để tổ
             chức 3 tab chính (vehicles/history/profile) thành 1 navigator
             riêng, tách khỏi trip/[id] bên dưới. */}

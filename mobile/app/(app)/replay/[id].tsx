@@ -263,13 +263,12 @@ export default function ReplayScreen() {
           anchor={{ x: 0.5, y: 0.5 }}
           flat
         >
-          <View
-            style={[
-              styles.carMarker,
-              { transform: [{ rotate: `${current.heading ?? 0}deg` }] },
-            ]}
-          >
-            <VehicleIcon type={vehicleType} height={26} />
+          <View style={styles.carMarker}>
+            <VehicleIcon
+              type={vehicleType}
+              height={26}
+              rotation={playing ? 0 : (current.heading ?? 0)}
+            />
           </View>
         </Marker>
       </MapView>
@@ -369,14 +368,8 @@ const styles = StyleSheet.create({
   },
   emptyText: { color: "#9ca3af", fontSize: 14 },
   carMarker: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: "#2563eb",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#fff",
   },
   eventDot: {
     width: 12,
