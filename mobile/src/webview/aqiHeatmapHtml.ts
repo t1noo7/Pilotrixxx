@@ -153,6 +153,10 @@ function buildVehicleDivIcon(type, headingDeg) {
       mergeTrailPoints(data.points);
       return;
     }
+    if (data.type === 'invalidate_size') {
+      map.invalidateSize();
+      return;
+    }
     renderInitial(data); // type === 'initial' (hoac khong co type, tuong thich nguoc)
   }
 

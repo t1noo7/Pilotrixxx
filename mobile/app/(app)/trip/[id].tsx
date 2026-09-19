@@ -968,7 +968,18 @@ export default function TripScreen() {
       )}
 
       {aqiModalVisible && (
-        <Modal visible animationType="slide" onRequestClose={closeAqiModal}>
+        <Modal
+          visible
+          animationType="slide"
+          onRequestClose={closeAqiModal}
+          onShow={() => {
+            setTimeout(() => {
+              aqiWebViewRef.current?.postMessage(
+                JSON.stringify({ type: "invalidate_size" }),
+              );
+            }, 150);
+          }}
+        >
           <View style={styles.aqiModalContainer}>
             <View
               style={[styles.aqiModalHeader, { paddingTop: insets.top + 8 }]}
