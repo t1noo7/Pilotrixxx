@@ -193,7 +193,7 @@ driverTripsRouter.get('/trips/current', async (req, res) => {
         if (trip && trip.status === 'pending' && !trip.vehicle_ready_at) {
             if (trip.pickup_deadline_at && Date.now() > new Date(trip.pickup_deadline_at).getTime()) {
                 await pool.query(
-                    `UPDATE trips SET status = 'aborted', ended_at = now()
+                    `UPDATE trips SET status = 'aborted', ended_at = now(), ended_reason = 'pickup_deadline_exceeded'
                      WHERE trip_id = $1 AND status = 'pending'`,
                     [trip.trip_id]
                 );
@@ -229,7 +229,7 @@ driverTripsRouter.get('/trips/current', async (req, res) => {
             const waitMinutes = (Date.now() - new Date(trip.vehicle_ready_at).getTime()) / 60000;
             if (waitMinutes > PICKUP_WAIT_TIMEOUT_MINUTES) {
                 await pool.query(
-                    `UPDATE trips SET status = 'aborted', ended_at = now()
+                    `UPDATE trips SET status = 'aborted', ended_at = now(), ended_reason = 'pickup_wait_timeout'
              WHERE trip_id = $1 AND status = 'pending'`,
                     [trip.trip_id]
                 );
