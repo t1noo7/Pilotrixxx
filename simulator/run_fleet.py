@@ -21,7 +21,14 @@ from psycopg2 import pool as pg_pool
 import socketio
 
 from config import BACKEND_URL, DATABASE_URL, FLEET_CONTROL_SECRET
-from simulator import run_simulation, start_trip, end_trip, abort_trip
+from simulator import (
+    run_simulation,
+    start_trip,
+    end_trip,
+    abort_trip,
+    report_pickup_eta,
+    compute_pickup_eta_seconds,
+)
 from datetime import datetime, timezone
 
 SCENARIOS = ["safe", "moderate", "dangerous"]
@@ -31,17 +38,23 @@ SCENARIOS = ["safe", "moderate", "dangerous"]
 # nguong rieng ben Python. Dong bo tay - doi 1 ben nho doi ca 2.
 PICKUP_WAIT_TIMEOUT_MINUTES = 10
 
+# Chu ky (giay) retry_missing_pickup_eta() kiem tra lai cac trip van chua
+# co pickup_deadline_at - bu dap cho truong hop report_pickup_eta() that
+# bai HAN luc dispatch dau (het ca 3 lan retry HTTP, hoac OSRM loi ngay
+# luc do). 60s la du du: report_pickup_eta() binh thuong xong trong vai
+# giay, khong lo bam nham vao 1 lan dang con "dang xu ly binh thuong".
+PICKUP_ETA_RETRY_INTERVAL_SECONDS = 60
+
 # Luu ban sao 'fleet' de reconcile_aborted_repositions() truy cap duoc -
 # connect()/connect_error() la @sio.event dinh nghia O NGOAI register_handlers()
 # nen khong "thay" duoc bien fleet local trong main() qua closure.
 fleet_cache: list[dict] = []
 running = {}  # device_ident -> {"thread": Thread, "stop_event": Event}
-# vehicle_id -> Event - RIENG cho nhanh "xe dang dung yen, di don ngay"
-# (immediate_target=True trong relocate_then_release). Nhanh nay TRUOC DAY
-# khong tao stop_event nao ca (goi run_simulation() truc tiep, khong dang
-# ky vao dau) - nen khong co cach nao huy giua chung. Dict nay la noi
-# DUY NHAT giu tham chieu toi stop_event cua no, de on_returned() co the
-# tim va set() khi driver huy chuyen.
+# vehicle_id -> {"stop_event": Event, "target_box": dict, "manual_trip_id": int}
+# RIENG cho nhanh "xe dang dung yen, di don ngay" (immediate_target=True
+# trong relocate_then_release). Truoc day chi giu Event - doi sang dict de
+# retry_missing_pickup_eta() doc lai duoc target_lat/lng + manual_trip_id
+# khi can goi lai OSRM + report_pickup_eta() (xem comment ham do).
 active_repositions = {}
 lock = threading.Lock()
 
@@ -257,8 +270,17 @@ def relocate_then_release(
     if entry is not None:
         # Xe dang co thread song - bom target vao truoc khi bao dung,
         # de thread doc duoc target moi ngay khi kiem tra stop_event.
+        # FIX: bom them manual_trip_id vao target_box - day la CACH DUY
+        # NHAT de "tiem" no vao 1 thread da khoi dong tu truoc (thread cu
+        # duoc start_vehicle() tao KHONG co manual_trip_id, mac dinh None
+        # suot doi thread do). Neu thieu dong nay, nhanh mid-patrol trong
+        # run_simulation() (simulator.py) khong bao gio biet trip nao de
+        # bao ETA ve - day chinh la nguyen nhan pickup_deadline_at null
+        # THUONG XUYEN chu khong phai chi luc mat mang, nhu phat hien hom
+        # nay (xem chat, khong ghi lai chi tiet o day tranh trung lap).
         entry["target_box"]["lat"] = target_lat
         entry["target_box"]["lng"] = target_lng
+        entry["target_box"]["manual_trip_id"] = manual_trip_id
         entry["stop_event"].set()
         entry["thread"].join()
         with lock:
@@ -297,7 +319,11 @@ def relocate_then_release(
     # vao active_repositions de on_returned() tim duoc khi driver huy.
     reposition_stop_event = threading.Event()
     with lock:
-        active_repositions[vehicle_id] = reposition_stop_event
+        active_repositions[vehicle_id] = {
+            "stop_event": reposition_stop_event,
+            "target_box": target_box,
+            "manual_trip_id": manual_trip_id,
+        }
 
     try:
         run_simulation(
@@ -344,7 +370,11 @@ def relocate_then_release(
         # Don dep bat ke thanh cong/loi/bi huy - tranh entry cu treo lai
         # tro toi stop_event da "xai xong", gay nham lan cho lan sau.
         with lock:
-            if active_repositions.get(vehicle_id) is reposition_stop_event:
+            immediate_entry = active_repositions.get(vehicle_id)
+            if (
+                immediate_entry is not None
+                and immediate_entry["stop_event"] is reposition_stop_event
+            ):
                 active_repositions.pop(vehicle_id, None)
 
 
@@ -370,9 +400,9 @@ def register_handlers(fleet: list[dict]):
         # Truong hop 1: xe dang o giua chung "dung yen -> di don ngay"
         # (immediate_target=True, dang ky trong active_repositions).
         with lock:
-            immediate_stop_event = active_repositions.get(vehicle_id)
-        if immediate_stop_event is not None:
-            immediate_stop_event.set()
+            immediate_entry = active_repositions.get(vehicle_id)
+        if immediate_entry is not None:
+            immediate_entry["stop_event"].set()
             stopped_something = True
 
         # Truong hop 2: xe dang patrol thi bi dieu huong di don - entry
@@ -451,9 +481,9 @@ def reconcile_aborted_repositions():
     )
     for vehicle_id in aborted_vehicle_ids:
         with lock:
-            immediate_stop_event = active_repositions.get(vehicle_id)
-        if immediate_stop_event is not None:
-            immediate_stop_event.set()
+            immediate_entry = active_repositions.get(vehicle_id)
+        if immediate_entry is not None:
+            immediate_entry["stop_event"].set()
 
         device_ident = device_for_vehicle(vehicle_id, fleet_cache)
         if device_ident is not None:
@@ -461,6 +491,79 @@ def reconcile_aborted_repositions():
                 entry = running.get(device_ident)
             if entry is not None and entry["target_box"].get("lat") is not None:
                 entry["stop_event"].set()
+
+
+def retry_missing_pickup_eta():
+    """Chay dinh ky (KHONG chi luc reconnect nhu reconcile_aborted_repositions
+    o tren) - bu dap cho truong hop report_pickup_eta() that bai HAN (het ca
+    3 lan retry cua _post_with_retry - mat mang dung luc goi, hoac OSRM loi
+    ngay luc dispatch dau) khien pickup_deadline_at mai mai NULL. Neu khong
+    co lop bu dap nay, trip do se KHONG BAO GIO tu abort theo khoang cach
+    (chi con PICKUP_WAIT_TIMEOUT_MINUTES co dinh sau khi xe toi noi that de
+    chan - dung nhu ghi nhan limitation cu, nhung gio chi con la luoi du
+    phong cuoi cung, khong phai duong duy nhat nua).
+
+    Xu ly CA 2 truong hop: 'dung yen -> di don ngay' (active_repositions)
+    va 'patrol bi dieu huong giua chung' (running, sau patch B6)."""
+    while True:
+        time.sleep(PICKUP_ETA_RETRY_INTERVAL_SECONDS)
+
+        with lock:
+            candidates = [
+                (vehicle_id, entry["target_box"], entry["manual_trip_id"])
+                for vehicle_id, entry in active_repositions.items()
+                if entry["manual_trip_id"] is not None
+            ]
+            candidates += [
+                (
+                    entry["car"]["vehicle_id"],
+                    entry["target_box"],
+                    entry["target_box"].get("manual_trip_id"),
+                )
+                for entry in running.values()
+                if entry["target_box"].get("lat") is not None
+                and entry["target_box"].get("manual_trip_id") is not None
+            ]
+
+        if not candidates:
+            continue
+
+        pool = _get_pool()
+        conn = pool.getconn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """select trip_id from trips
+                       where scenario = 'manual' and status in ('pending', 'ongoing')
+                       and pickup_deadline_at is null
+                       and trip_id = any(%s)""",
+                    ([tid for _, _, tid in candidates],),
+                )
+                missing_trip_ids = {row[0] for row in cur.fetchall()}
+        finally:
+            pool.putconn(conn)
+
+        for vehicle_id, target_box, manual_trip_id in candidates:
+            if manual_trip_id not in missing_trip_ids:
+                continue
+            target_lat, target_lng = target_box.get("lat"), target_box.get("lng")
+            if target_lat is None or target_lng is None:
+                continue
+            cur_lat, cur_lng = get_vehicle_position(vehicle_id)
+            if cur_lat is None or cur_lng is None:
+                continue
+            eta = compute_pickup_eta_seconds(cur_lat, cur_lng, target_lat, target_lng)
+            if eta is None:
+                print(
+                    f"[fleet] Retry pickup-eta cho trip #{manual_trip_id}: OSRM van "
+                    f"loi, se thu lai sau {PICKUP_ETA_RETRY_INTERVAL_SECONDS}s nua."
+                )
+                continue
+            print(
+                f"[fleet] Trip #{manual_trip_id} van thieu pickup_deadline_at sau "
+                f"{PICKUP_ETA_RETRY_INTERVAL_SECONDS}s - retry bao ETA={eta:.0f}s."
+            )
+            report_pickup_eta(manual_trip_id, eta)
 
 
 @sio.event(namespace="/fleet-control")
@@ -492,6 +595,7 @@ def main():
         )
 
     register_handlers(fleet)
+    threading.Thread(target=retry_missing_pickup_eta, daemon=True).start()
 
     sio.connect(
         BACKEND_URL,

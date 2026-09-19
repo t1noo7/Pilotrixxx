@@ -183,6 +183,23 @@ def report_pickup_eta(manual_trip_id: int, eta_seconds: float):
         )
 
 
+def compute_pickup_eta_seconds(
+    cur_lat: float, cur_lng: float, target_lat: float, target_lng: float
+) -> float | None:
+    """Tinh ETA that tu OSRM (vi tri hien tai -> diem don) + nhan he so an
+    toan random - tach rieng tu logic da co san trong run_simulation() de
+    retry_missing_pickup_eta() ben run_fleet.py dung lai duoc (KHONG duoc
+    goi run_simulation() day du o do - se lam xe chay lai tu dau, sai hoan
+    toan, xe dang chay that ma bi "sinh doi" 1 lan nua). Tra ve None neu
+    OSRM loi, giong het hanh vi fallback cua run_simulation()."""
+    route = RouteState(lat=cur_lat, lng=cur_lng)
+    route.head_to_location(target_lat, target_lng)
+    if route.last_eta_seconds is None:
+        return None
+    safety_factor = random.uniform(REPOSITION_ETA_MIN_FACTOR, REPOSITION_ETA_MAX_FACTOR)
+    return max(route.last_eta_seconds * safety_factor, REPOSITION_MIN_DURATION_SECONDS)
+
+
 def build_mqtt_client(client_id_suffix: str) -> mqtt.Client:
     """Tao MQTT client da connect den HiveMQ Cloud (TLS)."""
     client = mqtt.Client(
@@ -322,6 +339,14 @@ def run_simulation(
                         f"he so an toan x{safety_factor:.2f} -> {direction} budget "
                         f"tu {old_num_points} len {num_points} diem."
                     )
+                    # FIX: nhanh nay TRUOC DAY khong he bao pickup ETA ve
+                    # backend (chi nhanh immediate_target o dau ham co) -
+                    # target_box["manual_trip_id"] duoc run_fleet.py bom vao
+                    # tu relocate_then_release() (patch B6) ngay truoc khi
+                    # set() stop_event kich hoat nhanh redirect nay.
+                    redirect_manual_trip_id = target_box.get("manual_trip_id")
+                    if redirect_manual_trip_id is not None:
+                        report_pickup_eta(redirect_manual_trip_id, int(needed_seconds))
                 else:
                     # OSRM loi luc ngat giua chung - khong biet ETA that,
                     # giu nguyen phan con lai cua vong lap patrol cu (hanh
