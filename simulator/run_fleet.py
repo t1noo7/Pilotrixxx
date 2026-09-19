@@ -37,13 +37,8 @@ SCENARIOS = ["safe", "moderate", "dangerous"]
 # backend/src/routes/driverTrips.js - dung chung 1 nguong, KHONG tu dat
 # nguong rieng ben Python. Dong bo tay - doi 1 ben nho doi ca 2.
 PICKUP_WAIT_TIMEOUT_MINUTES = 10
-
-# Chu ky (giay) retry_missing_pickup_eta() kiem tra lai cac trip van chua
-# co pickup_deadline_at - bu dap cho truong hop report_pickup_eta() that
-# bai HAN luc dispatch dau (het ca 3 lan retry HTTP, hoac OSRM loi ngay
-# luc do). 60s la du du: report_pickup_eta() binh thuong xong trong vai
-# giay, khong lo bam nham vao 1 lan dang con "dang xu ly binh thuong".
-PICKUP_ETA_RETRY_INTERVAL_SECONDS = 60
+PICKUP_ETA_RETRY_DELAY_SECONDS = 30
+PICKUP_ETA_RETRY_MAX_ATTEMPTS = 3
 
 # Luu ban sao 'fleet' de reconcile_aborted_repositions() truy cap duoc -
 # connect()/connect_error() la @sio.event dinh nghia O NGOAI register_handlers()
@@ -281,6 +276,8 @@ def relocate_then_release(
         entry["target_box"]["lat"] = target_lat
         entry["target_box"]["lng"] = target_lng
         entry["target_box"]["manual_trip_id"] = manual_trip_id
+        if manual_trip_id is not None:
+            _schedule_pickup_eta_retry(vehicle_id, manual_trip_id)
         entry["stop_event"].set()
         entry["thread"].join()
         with lock:
@@ -324,6 +321,8 @@ def relocate_then_release(
             "target_box": target_box,
             "manual_trip_id": manual_trip_id,
         }
+    if manual_trip_id is not None:
+        _schedule_pickup_eta_retry(vehicle_id, manual_trip_id)
 
     try:
         run_simulation(
@@ -493,77 +492,86 @@ def reconcile_aborted_repositions():
                 entry["stop_event"].set()
 
 
-def retry_missing_pickup_eta():
-    """Chay dinh ky (KHONG chi luc reconnect nhu reconcile_aborted_repositions
-    o tren) - bu dap cho truong hop report_pickup_eta() that bai HAN (het ca
-    3 lan retry cua _post_with_retry - mat mang dung luc goi, hoac OSRM loi
-    ngay luc dispatch dau) khien pickup_deadline_at mai mai NULL. Neu khong
-    co lop bu dap nay, trip do se KHONG BAO GIO tu abort theo khoang cach
-    (chi con PICKUP_WAIT_TIMEOUT_MINUTES co dinh sau khi xe toi noi that de
-    chan - dung nhu ghi nhan limitation cu, nhung gio chi con la luoi du
-    phong cuoi cung, khong phai duong duy nhat nua).
+def _schedule_pickup_eta_retry(vehicle_id: int, manual_trip_id: int, attempt: int = 1):
+    """Lich 1 lan kiem tra BOUNDED (khong phai vong lap vo han) - chi ton
+    tai trong vai chuc giay ngay sau dispatch, tu huy sau
+    PICKUP_ETA_RETRY_MAX_ATTEMPTS lan neu van khong thanh cong. Khong co
+    dispatch nao dang dien ra thi khong co Timer nao ton tai ca."""
+    timer = threading.Timer(
+        PICKUP_ETA_RETRY_DELAY_SECONDS,
+        _check_and_retry_pickup_eta,
+        args=(vehicle_id, manual_trip_id, attempt),
+    )
+    timer.daemon = True
+    timer.start()
 
-    Xu ly CA 2 truong hop: 'dung yen -> di don ngay' (active_repositions)
-    va 'patrol bi dieu huong giua chung' (running, sau patch B6)."""
-    while True:
-        time.sleep(PICKUP_ETA_RETRY_INTERVAL_SECONDS)
 
-        with lock:
-            candidates = [
-                (vehicle_id, entry["target_box"], entry["manual_trip_id"])
-                for vehicle_id, entry in active_repositions.items()
-                if entry["manual_trip_id"] is not None
-            ]
-            candidates += [
-                (
-                    entry["car"]["vehicle_id"],
-                    entry["target_box"],
-                    entry["target_box"].get("manual_trip_id"),
-                )
-                for entry in running.values()
-                if entry["target_box"].get("lat") is not None
-                and entry["target_box"].get("manual_trip_id") is not None
-            ]
-
-        if not candidates:
-            continue
-
-        pool = _get_pool()
-        conn = pool.getconn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """select trip_id from trips
-                       where scenario = 'manual' and status in ('pending', 'ongoing')
-                       and pickup_deadline_at is null
-                       and trip_id = any(%s)""",
-                    ([tid for _, _, tid in candidates],),
-                )
-                missing_trip_ids = {row[0] for row in cur.fetchall()}
-        finally:
-            pool.putconn(conn)
-
-        for vehicle_id, target_box, manual_trip_id in candidates:
-            if manual_trip_id not in missing_trip_ids:
-                continue
-            target_lat, target_lng = target_box.get("lat"), target_box.get("lng")
-            if target_lat is None or target_lng is None:
-                continue
-            cur_lat, cur_lng = get_vehicle_position(vehicle_id)
-            if cur_lat is None or cur_lng is None:
-                continue
-            eta = compute_pickup_eta_seconds(cur_lat, cur_lng, target_lat, target_lng)
-            if eta is None:
-                print(
-                    f"[fleet] Retry pickup-eta cho trip #{manual_trip_id}: OSRM van "
-                    f"loi, se thu lai sau {PICKUP_ETA_RETRY_INTERVAL_SECONDS}s nua."
-                )
-                continue
-            print(
-                f"[fleet] Trip #{manual_trip_id} van thieu pickup_deadline_at sau "
-                f"{PICKUP_ETA_RETRY_INTERVAL_SECONDS}s - retry bao ETA={eta:.0f}s."
+def _check_and_retry_pickup_eta(vehicle_id: int, manual_trip_id: int, attempt: int):
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select pickup_deadline_at from trips where trip_id = %s",
+                (manual_trip_id,),
             )
-            report_pickup_eta(manual_trip_id, eta)
+            row = cur.fetchone()
+    finally:
+        pool.putconn(conn)
+
+    if row is None or row[0] is not None:
+        return  # da co gia tri roi (hoac trip khong con ton tai) - xong viec
+
+    with lock:
+        target_box = None
+        entry = active_repositions.get(vehicle_id)
+        if entry is not None and entry["manual_trip_id"] == manual_trip_id:
+            target_box = entry["target_box"]
+        else:
+            for running_entry in running.values():
+                if running_entry["target_box"].get("manual_trip_id") == manual_trip_id:
+                    target_box = running_entry["target_box"]
+                    break
+
+    if target_box is None:
+        print(
+            f"[fleet] Retry pickup-eta cho trip #{manual_trip_id}: xe khong con "
+            f"dang reposition (co the da huy/xong) - bo qua."
+        )
+        return
+
+    target_lat, target_lng = target_box.get("lat"), target_box.get("lng")
+    cur_lat, cur_lng = get_vehicle_position(vehicle_id)
+    eta = None
+    if (
+        target_lat is not None
+        and target_lng is not None
+        and cur_lat is not None
+        and cur_lng is not None
+    ):
+        eta = compute_pickup_eta_seconds(cur_lat, cur_lng, target_lat, target_lng)
+
+    if eta is not None:
+        print(
+            f"[fleet] Trip #{manual_trip_id} van thieu pickup_deadline_at (lan thu "
+            f"{attempt}) - retry bao ETA={eta:.0f}s."
+        )
+        report_pickup_eta(manual_trip_id, eta)
+        return
+
+    if attempt < PICKUP_ETA_RETRY_MAX_ATTEMPTS:
+        print(
+            f"[fleet] Retry pickup-eta cho trip #{manual_trip_id}: OSRM/vi tri van "
+            f"loi (lan {attempt}/{PICKUP_ETA_RETRY_MAX_ATTEMPTS}) - thu lai sau "
+            f"{PICKUP_ETA_RETRY_DELAY_SECONDS}s."
+        )
+        _schedule_pickup_eta_retry(vehicle_id, manual_trip_id, attempt + 1)
+    else:
+        print(
+            f"[fleet] Trip #{manual_trip_id}: het {PICKUP_ETA_RETRY_MAX_ATTEMPTS} lan "
+            f"retry pickup-eta van khong thanh cong - chap nhan bo cuoc, cho "
+            f"PICKUP_WAIT_TIMEOUT_MINUTES chan sau neu xe cuoi cung cung toi noi."
+        )
 
 
 @sio.event(namespace="/fleet-control")
@@ -595,7 +603,6 @@ def main():
         )
 
     register_handlers(fleet)
-    threading.Thread(target=retry_missing_pickup_eta, daemon=True).start()
 
     sio.connect(
         BACKEND_URL,
