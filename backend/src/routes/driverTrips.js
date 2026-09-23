@@ -2,6 +2,7 @@ import express from 'express';
 import { pool } from '../db.js';
 import { generateTripSummary } from '../services/tripSummaryService.js';
 import { runMlPredict } from './trips.js';
+import { computeTripAqiExposure } from '../services/aqiExposureService.js';
 import { handleTelemetryMessage } from '../services/telemetryService.js';
 import { getSpeedLimit } from '../services/speedLimitLookup.js';
 import { io, fleetControlNamespace, driverNamespace } from '../server.js';
@@ -861,7 +862,14 @@ driverTripsRouter.post('/trips/:id/end', async (req, res) => {
             catch (e) { console.error(`[driver/trips/:id/end] ML error trip ${tripId}:`, e.message); }
         }
 
-        res.json({ tripId, status: 'completed', summary, riskScore });
+        let aqiExposure = null;
+        try {
+            aqiExposure = await computeTripAqiExposure(tripId);
+        } catch (aqiErr) {
+            console.error(`[POST /driver/trips/:id/end] Loi tinh AQI exposure trip ${tripId}:`, aqiErr.message);
+        }
+
+        res.json({ tripId, status: 'completed', summary, riskScore, aqiExposure });
     } catch (err) {
         console.error('[POST /driver/trips/:id/end] Error:', err.message);
         res.status(500).json({ error: 'Internal server error' });
