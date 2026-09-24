@@ -2,7 +2,7 @@ import express from 'express';
 import { pool } from '../db.js';
 import { generateTripSummary } from '../services/tripSummaryService.js';
 import { runMlPredict } from './trips.js';
-import { computeTripAqiExposure } from '../services/aqiExposureService.js';
+import { computeTripAqiExposure, getTripAqiRoute } from '../services/aqiExposureService.js';
 import { handleTelemetryMessage } from '../services/telemetryService.js';
 import { getSpeedLimit } from '../services/speedLimitLookup.js';
 import { io, fleetControlNamespace, driverNamespace } from '../server.js';
@@ -1002,6 +1002,34 @@ driverTripsRouter.get('/trips/:id/risk-events', async (req, res) => {
         res.json({ tripId, count: result.rows.length, events: result.rows });
     } catch (err) {
         console.error('[GET /driver/trips/:id/risk-events] Error:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * GET /api/driver/trips/:id/aqi-route
+ * Phan loai AQI (NO2) theo tung diem cua CHINH driver nay - dung ve
+ * polyline mau trong Trip Replay mobile. Cung ownership check voi
+ * /telemetry, /risk-events o tren.
+ */
+driverTripsRouter.get('/trips/:id/aqi-route', async (req, res) => {
+    const tripId = parseInt(req.params.id, 10);
+    if (Number.isNaN(tripId)) return res.status(400).json({ error: 'tripId không hợp lệ' });
+    const limit = Math.min(parseInt(req.query.limit) || 1000, 1000);
+
+    try {
+        const ownerCheck = await pool.query(
+            'SELECT trip_id FROM trips WHERE trip_id = $1 AND driver_id = $2',
+            [tripId, req.driver.driverId]
+        );
+        if (ownerCheck.rows.length === 0) {
+            return res.status(404).json({ error: `Chuyến #${tripId} không tồn tại hoặc không thuộc về bạn` });
+        }
+
+        const { gridDate, highThreshold, points } = await getTripAqiRoute(tripId, limit);
+        res.json({ tripId, gridDate, highThreshold, count: points.length, points });
+    } catch (err) {
+        console.error('[GET /driver/trips/:id/aqi-route] Error:', err.message);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

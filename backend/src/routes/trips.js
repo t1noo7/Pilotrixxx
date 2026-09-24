@@ -4,7 +4,7 @@ import path from 'path';
 import express from 'express';
 import { pool } from '../db.js';
 import { generateTripSummary } from '../services/tripSummaryService.js';
-import { computeTripAqiExposure } from '../services/aqiExposureService.js';
+import { computeTripAqiExposure, getTripAqiRoute } from '../services/aqiExposureService.js';
 import { io, driverNamespace } from '../server.js';
 
 // Đường dẫn tới predict.py: backend/src/routes/ -> lên 3 cấp -> ml/predict.py
@@ -449,6 +449,27 @@ tripsRouter.get('/:id/risk-events', async (req, res) => {
         res.json({ tripId, count: result.rows.length, events: result.rows });
     } catch (err) {
         console.error('[GET /trips/:id/risk-events] Error:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * GET /api/trips/:id/aqi-route
+ * Phan loai AQI (NO2) theo tung diem telemetry - dung ve polyline mau
+ * trong Trip Replay, khop lop AQI da co voi lich su tuyen duong. Chi doc
+ * DB (khong goi GEE) - neu chua co grid cho ngay do thi aqiValue/isHigh
+ * tra ve null/false het, frontend tu ve mau mac dinh.
+ */
+tripsRouter.get('/:id/aqi-route', async (req, res) => {
+    const tripId = parseInt(req.params.id, 10);
+    if (Number.isNaN(tripId)) return res.status(400).json({ error: 'tripId không hợp lệ' });
+    const limit = Math.min(parseInt(req.query.limit) || 1000, 1000);
+
+    try {
+        const { gridDate, highThreshold, points } = await getTripAqiRoute(tripId, limit);
+        res.json({ tripId, gridDate, highThreshold, count: points.length, points });
+    } catch (err) {
+        console.error('[GET /trips/:id/aqi-route] Error:', err.message);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

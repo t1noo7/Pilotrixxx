@@ -2,27 +2,16 @@ import { pool } from '../db.js';
 import { ensureAqiGridForToday } from './aqiGridService.js';
 
 /**
- * Tinh + luu exposure AQI (NO2) cho 1 trip da completed - goi luc trip
- * end, cung pattern voi generateTripSummary/runMlPredict (loi khong lam
- * fail request /end, chi thieu du lieu exposure cho trip nay).
+ * Query dung chung: join telemetry cua 1 trip voi luoi AQI ngay tuong
+ * ung. CHI DOC DB (khong goi GEE) - dung cho ca tinh exposure luc trip
+ * end (khong limit) lan hien thi Trip Replay (co limit, giong /telemetry).
+ * Neu chua co grid cho ngay do (vd trip cu truoc khi co tinh nang nay)
+ * thi aqi_value/is_high tra ve null/false het, khong loi.
  */
-export async function computeTripAqiExposure(tripId) {
-    const tripRes = await pool.query(
-        `SELECT driver_id FROM trips WHERE trip_id = $1`,
-        [tripId]
-    );
-    if (tripRes.rows.length === 0) {
-        throw new Error(`Trip ${tripId} khong ton tai`);
-    }
-    const driverId = tripRes.rows[0].driver_id;
-
-    // Dam bao co luoi AQI gan ngay hom nay (lazy-fetch neu chua co) -
-    // tra ve dung ngay THUC TE dang co du lieu (co the lui do may che/OFFL tre).
-    const gridDate = await ensureAqiGridForToday();
-
-    const result = await pool.query(
-        `SELECT tr.ts, g.aqi_value,
-                (g.aqi_value >= t.high_threshold) AS is_high
+async function queryTripAqiPoints(tripId, gridDate, limit) {
+    const params = [tripId, gridDate];
+    let sql = `SELECT tr.ts, tr.latitude AS lat, tr.longitude AS lng, g.aqi_value,
+                (g.aqi_value IS NOT NULL AND g.aqi_value >= t.high_threshold) AS is_high
          FROM telemetry_raw tr
          LEFT JOIN aqi_daily_grid g
            ON g.grid_date = $2::date AND g.pollutant = 'NO2'
@@ -31,52 +20,53 @@ export async function computeTripAqiExposure(tripId) {
          LEFT JOIN aqi_daily_threshold t
            ON t.grid_date = $2::date AND t.pollutant = 'NO2'
          WHERE tr.trip_id = $1
-         ORDER BY tr.ts ASC`,
-        [tripId, gridDate]
-    );
-    const points = result.rows;
+         ORDER BY tr.ts ASC`;
+    if (limit) {
+        sql += ` LIMIT $3`;
+        params.push(limit);
+    }
+    const result = await pool.query(sql, params);
+    return result.rows;
+}
+
+/**
+ * Tinh + luu exposure AQI (NO2) cho 1 trip da completed - goi luc trip
+ * end, cung pattern voi generateTripSummary/runMlPredict (loi khong lam
+ * fail request /end, chi thieu du lieu exposure cho trip nay).
+ */
+export async function computeTripAqiExposure(tripId) {
+    const tripRes = await pool.query(`SELECT driver_id FROM trips WHERE trip_id = $1`, [tripId]);
+    if (tripRes.rows.length === 0) throw new Error(`Trip ${tripId} khong ton tai`);
+    const driverId = tripRes.rows[0].driver_id;
+
+    const gridDate = await ensureAqiGridForToday();
+    const points = await queryTripAqiPoints(tripId, gridDate);
 
     if (points.length < 2) {
-        // Chua du diem de tinh khoang thoi gian - luu exposure rong,
-        // khong throw (trip qua ngan van hop le, khong phai loi).
         await upsertExposure(tripId, driverId, { avgAqi: null, highMinutes: 0, totalMinutes: 0, episodes: 0 });
         return { tripId, driverId, avgAqi: null, highAqiMinutes: 0, totalMinutes: 0, episodeCount: 0 };
     }
 
-    let totalMs = 0;
-    let highMs = 0;
-    let episodeCount = 0;
-    let wasHigh = false;
+    let totalMs = 0, highMs = 0, episodeCount = 0, wasHigh = false;
     const aqiValues = [];
-
     for (let i = 0; i < points.length; i++) {
         const p = points[i];
         if (p.aqi_value !== null) aqiValues.push(Number(p.aqi_value));
-
         const isHigh = p.is_high === true;
         if (isHigh && !wasHigh) episodeCount++;
         wasHigh = isHigh;
-
         if (i > 0) {
             const deltaMs = new Date(p.ts) - new Date(points[i - 1].ts);
             totalMs += deltaMs;
-            // Quy uoc: khoang [i-1, i] tinh la "high" neu diem BAT DAU
-            // khoang do dang high - xap xi hop ly vi telemetry lay mau
-            // deu (~1-2s/lan), sai so khong dang ke.
             if (points[i - 1].is_high === true) highMs += deltaMs;
         }
     }
 
     const totalMinutes = totalMs / 60000;
     const highAqiMinutes = highMs / 60000;
-    const avgAqi = aqiValues.length > 0
-        ? aqiValues.reduce((a, b) => a + b, 0) / aqiValues.length
-        : null;
+    const avgAqi = aqiValues.length > 0 ? aqiValues.reduce((a, b) => a + b, 0) / aqiValues.length : null;
 
-    await upsertExposure(tripId, driverId, {
-        avgAqi, highMinutes: highAqiMinutes, totalMinutes, episodes: episodeCount,
-    });
-
+    await upsertExposure(tripId, driverId, { avgAqi, highMinutes: highAqiMinutes, totalMinutes, episodes: episodeCount });
     return { tripId, driverId, avgAqi, highAqiMinutes, totalMinutes, episodeCount };
 }
 
@@ -93,4 +83,37 @@ async function upsertExposure(tripId, driverId, { avgAqi, highMinutes, totalMinu
             computed_at = now()`,
         [tripId, driverId, avgAqi, highMinutes, totalMinutes, episodes]
     );
+}
+
+/**
+ * Lay du lieu AQI theo tung diem cho 1 trip - dung ve polyline mau trong
+ * Trip Replay. gridDate = ngay trip ket thuc (khop dung ngay
+ * ensureAqiGridForToday() da dung luc computeTripAqiExposure chay luc do).
+ */
+export async function getTripAqiRoute(tripId, limit = 1000) {
+    const tripRes = await pool.query(
+        `SELECT COALESCE(ended_at, now())::date AS grid_date FROM trips WHERE trip_id = $1`,
+        [tripId]
+    );
+    if (tripRes.rows.length === 0) throw new Error(`Trip ${tripId} khong ton tai`);
+    const gridDate = tripRes.rows[0].grid_date;
+
+    const thresholdRes = await pool.query(
+        `SELECT high_threshold FROM aqi_daily_threshold WHERE grid_date = $1 AND pollutant = 'NO2'`,
+        [gridDate]
+    );
+    const highThreshold = thresholdRes.rows[0]?.high_threshold ?? null;
+
+    const rows = await queryTripAqiPoints(tripId, gridDate, limit);
+
+    return {
+        gridDate,
+        highThreshold,
+        points: rows.map((p) => ({
+            lat: p.lat,
+            lng: p.lng,
+            aqiValue: p.aqi_value !== null ? Number(p.aqi_value) : null,
+            isHigh: p.is_high === true,
+        })),
+    };
 }
