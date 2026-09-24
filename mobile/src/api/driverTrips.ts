@@ -257,3 +257,21 @@ export async function getTripRiskEvents(
   );
   return data;
 }
+
+export interface AqiRoutePoint {
+  lat: number;
+  lng: number;
+  aqiValue: number | null;
+  isHigh: boolean;
+}
+
+export async function getTripAqiRoute(tripId: string): Promise<{
+  tripId: string;
+  gridDate: string;
+  highThreshold: number | null;
+  count: number;
+  points: AqiRoutePoint[];
+}> {
+  const { data } = await apiClient.get(`/api/driver/trips/${tripId}/aqi-route`);
+  return data;
+}

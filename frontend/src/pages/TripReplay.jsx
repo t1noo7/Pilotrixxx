@@ -82,6 +82,7 @@ export default function TripReplay() {
   const [trip, setTrip] = useState(null);
   const [telemetry, setTelemetry] = useState([]);
   const [riskEvents, setRiskEvents] = useState([]);
+  const [aqiPoints, setAqiPoints] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -100,11 +101,13 @@ export default function TripReplay() {
       apiClient.get(`/api/trips/${id}`),
       apiClient.get(`/api/trips/${id}/telemetry`, { params: { limit: 1000 } }),
       apiClient.get(`/api/trips/${id}/risk-events`),
+      apiClient.get(`/api/trips/${id}/aqi-route`, { params: { limit: 1000 } }),
     ])
-      .then(([tripRes, telRes, evRes]) => {
+      .then(([tripRes, telRes, evRes, aqiRes]) => {
         setTrip(tripRes.data);
         setTelemetry(telRes.data.points);
         setRiskEvents(evRes.data.events);
+        setAqiPoints(aqiRes.data.points);
       })
       .catch((err) =>
         setError(
@@ -178,6 +181,25 @@ export default function TripReplay() {
     () => telemetry.map((p) => [p.lat, p.lng]),
     [telemetry],
   );
+
+  // Gom cac diem lien tuc CUNG trang thai isHigh thanh 1 segment - khop
+  // dung so diem voi /telemetry (cung ORDER BY ts ASC + cung limit) nen
+  // ghep 1-1 theo index, khong can join lai theo toa do.
+  const aqiSegments = useMemo(() => {
+    if (aqiPoints.length !== positions.length || positions.length < 2)
+      return null;
+    const segments = [];
+    let current = null;
+    for (let i = 0; i < positions.length - 1; i++) {
+      const isHigh = aqiPoints[i]?.isHigh || false;
+      if (!current || current.isHigh !== isHigh) {
+        current = { isHigh, coords: [positions[i]] };
+        segments.push(current);
+      }
+      current.coords.push(positions[i + 1]);
+    }
+    return segments;
+  }, [aqiPoints, positions]);
 
   function seekToRatio(ratio) {
     setPlaying(false);
@@ -304,6 +326,28 @@ export default function TripReplay() {
         ))}
       </div>
 
+      {aqiSegments && (
+        <div
+          style={{
+            display: "flex",
+            gap: 16,
+            fontSize: 12,
+            color: "var(--text-secondary)",
+            marginBottom: 16,
+          }}
+        >
+          <span style={{ fontWeight: 600 }}>Ô nhiễm (NO₂):</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 16, height: 3, background: "#3dd6c4" }} />
+            Bình thường
+          </span>
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 16, height: 3, background: "#f87171" }} />
+            Cao (top 25% ngày)
+          </span>
+        </div>
+      )}
+
       <div
         style={{
           minHeight: 440,
@@ -327,10 +371,24 @@ export default function TripReplay() {
             position={current ? [current.lat, current.lng] : null}
             allPositions={positions}
           />
-          <Polyline
-            positions={positions}
-            pathOptions={{ color: "#3dd6c4", weight: 3, opacity: 0.6 }}
-          />
+          {aqiSegments ? (
+            aqiSegments.map((seg, i) => (
+              <Polyline
+                key={i}
+                positions={seg.coords}
+                pathOptions={{
+                  color: seg.isHigh ? "#f87171" : "#3dd6c4",
+                  weight: 3,
+                  opacity: 0.7,
+                }}
+              />
+            ))
+          ) : (
+            <Polyline
+              positions={positions}
+              pathOptions={{ color: "#3dd6c4", weight: 3, opacity: 0.6 }}
+            />
+          )}
           {riskEvents.map((ev) => {
             const style =
               RISK_EVENT_STYLE[ev.event_type] || DEFAULT_EVENT_STYLE;

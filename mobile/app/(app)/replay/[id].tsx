@@ -16,8 +16,10 @@ import type { VehicleType } from "../../../src/types";
 import {
   getTripTelemetry,
   getTripRiskEvents,
+  getTripAqiRoute,
   type TelemetryPoint,
   type RiskEventPoint,
+  type AqiRoutePoint,
 } from "../../../src/api/driverTrips";
 import LoadingOverlay from "../../../src/components/LoadingOverlay";
 import {
@@ -53,6 +55,7 @@ export default function ReplayScreen() {
   const vehicleType = (vehicleTypeParam as VehicleType) || "sedan";
   const [telemetry, setTelemetry] = useState<TelemetryPoint[]>([]);
   const [events, setEvents] = useState<RiskEventPoint[]>([]);
+  const [aqiPoints, setAqiPoints] = useState<AqiRoutePoint[]>([]);
   const [loading, setLoading] = useState(true);
 
   // progress: 0..1 theo TIMELINE THẬT của chuyến (không phải index điểm
@@ -67,10 +70,15 @@ export default function ReplayScreen() {
 
   useEffect(() => {
     if (!tripId) return;
-    Promise.all([getTripTelemetry(tripId), getTripRiskEvents(tripId)])
-      .then(([tel, ev]) => {
+    Promise.all([
+      getTripTelemetry(tripId),
+      getTripRiskEvents(tripId),
+      getTripAqiRoute(tripId),
+    ])
+      .then(([tel, ev, aqi]) => {
         setTelemetry(tel.points);
         setEvents(ev.events);
+        setAqiPoints(aqi.points);
         if (tel.points.length > 0) {
           setTimeout(() => {
             mapRef.current?.fitToCoordinates(
@@ -157,6 +165,31 @@ export default function ReplayScreen() {
     [telemetry],
   );
 
+  // Gom cac diem lien tuc CUNG trang thai isHigh thanh 1 segment - khop
+  // dung so diem voi telemetry (cung ORDER BY ts ASC) nen ghep 1-1 theo
+  // index, khong can join lai theo toa do.
+  const aqiSegments = useMemo(() => {
+    if (aqiPoints.length !== polylineCoords.length || polylineCoords.length < 2)
+      return null;
+    const segments: {
+      isHigh: boolean;
+      coords: { latitude: number; longitude: number }[];
+    }[] = [];
+    let current: {
+      isHigh: boolean;
+      coords: { latitude: number; longitude: number }[];
+    } | null = null;
+    for (let i = 0; i < polylineCoords.length - 1; i++) {
+      const isHigh = aqiPoints[i]?.isHigh || false;
+      if (!current || current.isHigh !== isHigh) {
+        current = { isHigh, coords: [polylineCoords[i]] };
+        segments.push(current);
+      }
+      current.coords.push(polylineCoords[i + 1]);
+    }
+    return segments;
+  }, [aqiPoints, polylineCoords]);
+
   function seekToRatio(ratio: number) {
     setPlaying(false);
     setProgress(clamp01(ratio));
@@ -238,11 +271,22 @@ export default function ReplayScreen() {
           longitudeDelta: 0.02,
         }}
       >
-        <Polyline
-          coordinates={polylineCoords}
-          strokeColor="#2563eb"
-          strokeWidth={4}
-        />
+        {aqiSegments ? (
+          aqiSegments.map((seg, i) => (
+            <Polyline
+              key={i}
+              coordinates={seg.coords}
+              strokeColor={seg.isHigh ? "#ef4444" : "#2563eb"}
+              strokeWidth={4}
+            />
+          ))
+        ) : (
+          <Polyline
+            coordinates={polylineCoords}
+            strokeColor="#2563eb"
+            strokeWidth={4}
+          />
+        )}
         {events.map((ev) => {
           const style = RISK_EVENT_STYLE[ev.event_type] || DEFAULT_EVENT_STYLE;
           return (
@@ -287,6 +331,14 @@ export default function ReplayScreen() {
               <Text style={styles.legendText}>{style.label}</Text>
             </View>
           ))}
+          {aqiSegments && (
+            <View style={styles.legendItem}>
+              <View
+                style={[styles.legendDot, { backgroundColor: "#ef4444" }]}
+              />
+              <Text style={styles.legendText}>Ô nhiễm cao (NO₂)</Text>
+            </View>
+          )}
         </ScrollView>
       </View>
 
