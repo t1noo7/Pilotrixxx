@@ -665,7 +665,9 @@ driverTripsRouter.post('/trips/:id/simulate-lane-drift', async (req, res) => {
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
-const AI_ROAST_TIMEOUT_MS = 5000; // qua 5s coi như fail, chuyển fallback -
+const AI_ROAST_TIMEOUT_MS = 8000; // qua 8s coi như fail, chuyển fallback -
+// (tang tu 5s len 8s - 5s hoi chat so voi latency thuc te Render SG ->
+// Google, gay abort oan dan den luon roi ve static fallback)
 // KHÔNG để driver chờ AI chậm quá lâu, breakdown UI phải mượt.
 
 // Câu dự phòng NẾU CẢ Gemini lẫn Groq đều fail (mất mạng, het quota, sai
@@ -746,7 +748,7 @@ async function callGroq(prompt) {
                 Authorization: `Bearer ${GROQ_API_KEY}`,
             },
             body: JSON.stringify({
-                model: 'llama-3.3-70b-versatile',
+                model: 'openai/gpt-oss-120b',
                 messages: [{ role: 'user', content: prompt }],
                 max_tokens: 80,
                 temperature: 0.9,
