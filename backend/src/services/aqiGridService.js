@@ -61,7 +61,7 @@ export async function ensureAqiGridForToday() {
 
     console.log(`[aqi-grid] Chua co du lieu grid gan ${requestedDate}, dang fetch tu GEE...`);
     const result = await runGeeFetchGrid(requestedDate);
-    const { date, pollutant, cells, high_threshold } = result;
+    const { date, pollutant, cells, high_threshold, medium_threshold } = result;
 
     const client = await pool.connect();
     try {
@@ -75,10 +75,12 @@ export async function ensureAqiGridForToday() {
             );
         }
         await client.query(
-            `INSERT INTO aqi_daily_threshold (grid_date, pollutant, high_threshold)
-             VALUES ($1, $2, $3)
-             ON CONFLICT (grid_date, pollutant) DO UPDATE SET high_threshold = EXCLUDED.high_threshold`,
-            [date, pollutant, high_threshold]
+            `INSERT INTO aqi_daily_threshold (grid_date, pollutant, high_threshold, medium_threshold)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (grid_date, pollutant) DO UPDATE SET
+                high_threshold = EXCLUDED.high_threshold,
+                medium_threshold = EXCLUDED.medium_threshold`,
+            [date, pollutant, high_threshold, medium_threshold]
         );
         await client.query('COMMIT');
         console.log(`[aqi-grid] Da luu ${cells.length} cells cho ngay ${date}`);

@@ -28,6 +28,7 @@ from gee_fetch_live import authenticate, get_hanoi_boundary_and_region, POLLUTAN
 
 GRID_STEP_DEG = 0.01  # ~1.1km
 POLLUTANT = "NO2"  # co dinh NO2 cho tinh nang exposure (khi thai giao thong)
+MEDIUM_PERCENTILE = 50  # nguong "AQI vua" = percentile p50
 HIGH_PERCENTILE = 75  # nguong "AQI cao" = percentile p75 cua chinh luoi ngay do
 
 
@@ -123,8 +124,10 @@ def fetch_grid(date_str: str) -> dict:
         )
 
     values.sort()
-    idx = min(int(len(values) * HIGH_PERCENTILE / 100), len(values) - 1)
-    high_threshold = values[idx]
+    high_idx = min(int(len(values) * HIGH_PERCENTILE / 100), len(values) - 1)
+    medium_idx = min(int(len(values) * MEDIUM_PERCENTILE / 100), len(values) - 1)
+    high_threshold = values[high_idx]
+    medium_threshold = values[medium_idx]
 
     return {
         "date": target_date.strftime("%Y-%m-%d"),
@@ -133,6 +136,7 @@ def fetch_grid(date_str: str) -> dict:
         "cell_count": len(cells),
         "cells": cells,
         "high_threshold": high_threshold,
+        "medium_threshold": medium_threshold,
     }
 
 
@@ -145,7 +149,7 @@ def main():
         authenticate()
         result = fetch_grid(args.date)
         log(
-            f"[grid] {result['cell_count']} cells, threshold p{HIGH_PERCENTILE}={result['high_threshold']:.6g}"
+            f"[grid] {result['cell_count']} cells, threshold p{MEDIUM_PERCENTILE}={result['medium_threshold']:.6g} p{HIGH_PERCENTILE}={result['high_threshold']:.6g}"
         )
         print(json.dumps(result))  # DUY NHAT dong nay in ra stdout
     except Exception as e:

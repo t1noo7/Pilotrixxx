@@ -258,11 +258,13 @@ export async function getTripRiskEvents(
   return data;
 }
 
+export type AqiLevel = "normal" | "medium" | "high";
+
 export interface AqiRoutePoint {
   lat: number;
   lng: number;
   aqiValue: number | null;
-  isHigh: boolean;
+  aqiLevel: AqiLevel;
 }
 
 export async function getTripAqiRoute(tripId: string): Promise<{

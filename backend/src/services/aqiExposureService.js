@@ -11,7 +11,12 @@ import { ensureAqiGridForToday } from './aqiGridService.js';
 async function queryTripAqiPoints(tripId, gridDate, limit) {
     const params = [tripId, gridDate];
     let sql = `SELECT tr.ts, tr.latitude AS lat, tr.longitude AS lng, g.aqi_value,
-                (g.aqi_value IS NOT NULL AND g.aqi_value >= t.high_threshold) AS is_high
+                CASE
+                    WHEN g.aqi_value IS NULL THEN NULL
+                    WHEN g.aqi_value >= t.high_threshold THEN 'high'
+                    WHEN g.aqi_value >= t.medium_threshold THEN 'medium'
+                    ELSE 'normal'
+                END AS aqi_level
          FROM telemetry_raw tr
          LEFT JOIN aqi_daily_grid g
            ON g.grid_date = $2::date AND g.pollutant = 'NO2'
@@ -52,13 +57,13 @@ export async function computeTripAqiExposure(tripId) {
     for (let i = 0; i < points.length; i++) {
         const p = points[i];
         if (p.aqi_value !== null) aqiValues.push(Number(p.aqi_value));
-        const isHigh = p.is_high === true;
+        const isHigh = p.aqi_level === 'high';
         if (isHigh && !wasHigh) episodeCount++;
         wasHigh = isHigh;
         if (i > 0) {
             const deltaMs = new Date(p.ts) - new Date(points[i - 1].ts);
             totalMs += deltaMs;
-            if (points[i - 1].is_high === true) highMs += deltaMs;
+            if (points[i - 1].aqi_level === 'high') highMs += deltaMs;
         }
     }
 
@@ -113,7 +118,7 @@ export async function getTripAqiRoute(tripId, limit = 1000) {
             lat: p.lat,
             lng: p.lng,
             aqiValue: p.aqi_value !== null ? Number(p.aqi_value) : null,
-            isHigh: p.is_high === true,
+            aqiLevel: p.aqi_level || 'normal',
         })),
     };
 }

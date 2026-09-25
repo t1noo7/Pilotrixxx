@@ -20,7 +20,21 @@ import {
   type TelemetryPoint,
   type RiskEventPoint,
   type AqiRoutePoint,
+  type AqiLevel,
 } from "../../../src/api/driverTrips";
+
+// Dung chung bang mau AQI chuan (xanh la/vang/do) - khac xanh duong route
+// mac dinh cu, tranh nham voi "chi la duong da di".
+const AQI_LEVEL_COLOR: Record<AqiLevel, string> = {
+  normal: "#22c55e",
+  medium: "#f59e0b",
+  high: "#ef4444",
+};
+const AQI_LEVEL_LABEL: Record<AqiLevel, string> = {
+  normal: "Bình thường",
+  medium: "Ô nhiễm vừa",
+  high: "Ô nhiễm cao",
+};
 import LoadingOverlay from "../../../src/components/LoadingOverlay";
 import {
   RISK_EVENT_STYLE,
@@ -172,17 +186,17 @@ export default function ReplayScreen() {
     if (aqiPoints.length !== polylineCoords.length || polylineCoords.length < 2)
       return null;
     const segments: {
-      isHigh: boolean;
+      level: AqiLevel;
       coords: { latitude: number; longitude: number }[];
     }[] = [];
     let current: {
-      isHigh: boolean;
+      level: AqiLevel;
       coords: { latitude: number; longitude: number }[];
     } | null = null;
     for (let i = 0; i < polylineCoords.length - 1; i++) {
-      const isHigh = aqiPoints[i]?.isHigh || false;
-      if (!current || current.isHigh !== isHigh) {
-        current = { isHigh, coords: [polylineCoords[i]] };
+      const level = aqiPoints[i]?.aqiLevel || "normal";
+      if (!current || current.level !== level) {
+        current = { level, coords: [polylineCoords[i]] };
         segments.push(current);
       }
       current.coords.push(polylineCoords[i + 1]);
@@ -276,7 +290,7 @@ export default function ReplayScreen() {
             <Polyline
               key={i}
               coordinates={seg.coords}
-              strokeColor={seg.isHigh ? "#ef4444" : "#2563eb"}
+              strokeColor={AQI_LEVEL_COLOR[seg.level]}
               strokeWidth={4}
             />
           ))
@@ -331,15 +345,23 @@ export default function ReplayScreen() {
               <Text style={styles.legendText}>{style.label}</Text>
             </View>
           ))}
-          {aqiSegments && (
-            <View style={styles.legendItem}>
-              <View
-                style={[styles.legendDot, { backgroundColor: "#ef4444" }]}
-              />
-              <Text style={styles.legendText}>Ô nhiễm cao (NO₂)</Text>
-            </View>
-          )}
         </ScrollView>
+        {aqiSegments && (
+          <View style={styles.aqiLegendRow}>
+            <Text style={styles.aqiLegendLabel}>Ô nhiễm (NO₂):</Text>
+            {(["normal", "medium", "high"] as AqiLevel[]).map((level) => (
+              <View key={level} style={styles.legendItem}>
+                <View
+                  style={[
+                    styles.legendDot,
+                    { backgroundColor: AQI_LEVEL_COLOR[level] },
+                  ]}
+                />
+                <Text style={styles.legendText}>{AQI_LEVEL_LABEL[level]}</Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
 
       <View style={styles.controls}>
@@ -440,6 +462,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 12,
     marginRight: 6,
+  },
+  aqiLegendRow: {
+    marginTop: 6,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
+  },
+  aqiLegendLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#374151",
+    marginRight: 2,
   },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
   legendText: { fontSize: 11, color: "#374151", fontWeight: "600" },

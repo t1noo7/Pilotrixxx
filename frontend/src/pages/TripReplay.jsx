@@ -24,6 +24,13 @@ const RISK_LABEL = {
   dangerous: "Nguy hiểm",
 };
 const RISK_COLOR = { safe: "#34d399", medium: "#fbbf24", dangerous: "#f87171" };
+// Dung chung bang mau AQI chuan (xanh la/vang/do) - khac han xanh duong
+// route mac dinh cu, tranh nham voi "chi la duong da di" nhu truoc.
+const AQI_LEVEL_COLOR = {
+  normal: "#34d399",
+  medium: "#fbbf24",
+  high: "#f87171",
+};
 
 const PLAYBACK_SPEEDS = [1, 2, 4, 8];
 // Toàn bộ chuyến (bất kể dài ngắn thật - 5 phút hay 2 tiếng) được "nén"
@@ -191,9 +198,9 @@ export default function TripReplay() {
     const segments = [];
     let current = null;
     for (let i = 0; i < positions.length - 1; i++) {
-      const isHigh = aqiPoints[i]?.isHigh || false;
-      if (!current || current.isHigh !== isHigh) {
-        current = { isHigh, coords: [positions[i]] };
+      const level = aqiPoints[i]?.aqiLevel || "normal";
+      if (!current || current.level !== level) {
+        current = { level, coords: [positions[i]] };
         segments.push(current);
       }
       current.coords.push(positions[i + 1]);
@@ -338,11 +345,29 @@ export default function TripReplay() {
         >
           <span style={{ fontWeight: 600 }}>Ô nhiễm (NO₂):</span>
           <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 16, height: 3, background: "#3dd6c4" }} />
+            <span
+              style={{
+                width: 16,
+                height: 3,
+                background: AQI_LEVEL_COLOR.normal,
+              }}
+            />
             Bình thường
           </span>
           <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 16, height: 3, background: "#f87171" }} />
+            <span
+              style={{
+                width: 16,
+                height: 3,
+                background: AQI_LEVEL_COLOR.medium,
+              }}
+            />
+            Vừa (top 50% ngày)
+          </span>
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span
+              style={{ width: 16, height: 3, background: AQI_LEVEL_COLOR.high }}
+            />
             Cao (top 25% ngày)
           </span>
         </div>
@@ -377,7 +402,7 @@ export default function TripReplay() {
                 key={i}
                 positions={seg.coords}
                 pathOptions={{
-                  color: seg.isHigh ? "#f87171" : "#3dd6c4",
+                  color: AQI_LEVEL_COLOR[seg.level] || AQI_LEVEL_COLOR.normal,
                   weight: 3,
                   opacity: 0.7,
                 }}
