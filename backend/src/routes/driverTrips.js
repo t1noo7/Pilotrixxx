@@ -665,6 +665,7 @@ driverTripsRouter.post('/trips/:id/simulate-lane-drift', async (req, res) => {
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const AI_ROAST_TIMEOUT_MS = 8000; // qua 8s coi như fail, chuyển fallback -
 // (tang tu 5s len 8s - 5s hoi chat so voi latency thuc te Render SG ->
 // Google, gay abort oan dan den luon roi ve static fallback)
@@ -696,7 +697,7 @@ function buildRoastPrompt(summary, riskLevel) {
     return (
         `Bạn là một AI cà khịa, đanh đá, chua ngoa, nói chuyện kiểu bạn thân ` +
         `mất dạy hay trêu nhau - được phép chửi thề nhẹ (kiểu "vãi", "ối giồi ` +
-        `ôi", "thánh") nhưng TUYỆT ĐỐI không chửi tục nặng, không xúc phạm ` +
+        `ôi", "thánh", "ngu lắm", "tml") nhưng TUYỆT ĐỐI không chửi tục nặng, không xúc phạm ` +
         `nhân phẩm, không nói về ngoại hình/gia đình người khác. Bạn đang ` +
         `chấm điểm 1 chuyến đi của tài xế app cho thuê xe ở Việt Nam.\n\n` +
         `Dữ liệu chuyến:\n` +
@@ -706,9 +707,7 @@ function buildRoastPrompt(summary, riskLevel) {
         `- Vượt tốc: ${Math.round((summary.overspeed_ratio || 0) * 100)}% thời gian\n` +
         `- Mức rủi ro tổng: ${riskLevel}\n\n` +
         `Viết ĐÚNG 1 câu tiếng Việt CÓ DẤU ĐẦY ĐỦ (dưới 30 từ), giọng cà khịa ` +
-        `chua ngoa thật sự sắc, chèn 1-2 emoji hợp ngữ cảnh cho sinh động. ` +
-        `CHỈ trả về đúng câu đó, không thích, không giải thích thêm, không ` +
-        `để trong ngoặc kép.`
+        `chua ngoa thật sự sắc, chèn 1-2 emoji hợp ngữ cảnh cho sinh động. `
     );
 }
 
@@ -722,7 +721,13 @@ async function callGemini(prompt) {
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    // Tat thinking - cau roast chi la 1 cau ca khia ngan,
+                    // khong can model "suy nghi" hang nghin token an truoc
+                    // khi tra loi, gay abort oan do vuot AI_ROAST_TIMEOUT_MS.
+                    generationConfig: { thinkingConfig: { thinkingBudget: 0 }, temperature: 1.1 },
+                }),
                 signal: controller.signal,
             }
         );
@@ -750,15 +755,51 @@ async function callGroq(prompt) {
             body: JSON.stringify({
                 model: 'openai/gpt-oss-120b',
                 messages: [{ role: 'user', content: prompt }],
-                max_tokens: 80,
-                temperature: 0.9,
+                // gpt-oss-120b la reasoning model, mac dinh ngon token vao
+                // buoc "suy nghi" truoc khi sinh content that - max_tokens: 80
+                // qua thap nen bi can truoc khi ra duoc cau tra loi (content
+                // rong nhung khong loi). reasoning_effort: low giam thinking,
+                // max_tokens tang de con du cho ca phan reasoning con lai.
+                reasoning_effort: 'low',
+                max_tokens: 300,
+                temperature: 1.2,
             }),
             signal: controller.signal,
         });
         if (!res.ok) throw new Error(`Groq HTTP ${res.status}`);
         const data = await res.json();
         const text = data?.choices?.[0]?.message?.content;
+        console.log(`[roast] Groq raw response trip debug:`, JSON.stringify(data));
         if (!text || !text.trim()) throw new Error('Groq tra ve rong');
+        return text.trim();
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+async function callMistral(prompt) {
+    if (!MISTRAL_API_KEY) throw new Error('MISTRAL_API_KEY chua duoc cau hinh');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), AI_ROAST_TIMEOUT_MS);
+    try {
+        const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${MISTRAL_API_KEY}`,
+            },
+            body: JSON.stringify({
+                model: 'ministral-3b-2512',
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 120,
+                temperature: 1.0,
+            }),
+            signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(`Mistral HTTP ${res.status}`);
+        const data = await res.json();
+        const text = data?.choices?.[0]?.message?.content;
+        if (!text || !text.trim()) throw new Error('Mistral tra ve rong');
         return text.trim();
     } finally {
         clearTimeout(timeout);
@@ -798,21 +839,32 @@ driverTripsRouter.get('/trips/:id/roast', async (req, res) => {
 
         const prompt = buildRoastPrompt(summary, riskLevel);
 
+        // Luan phien provider theo tripId (khong phai Math.random) de deterministic -
+        // vua chia tai deu 3 provider, vua de debug (biet chac trip nao roi provider
+        // nao). Fail thi cascade sang provider ke tiep trong vong, het ca 3 moi ve
+        // cau tinh.
+        const providers = [
+            { name: 'gemini', call: callGemini },
+            { name: 'groq', call: callGroq },
+            { name: 'mistral', call: callMistral },
+        ];
+        const startIdx = tripId % providers.length;
+
         let comment;
         let source;
-        try {
-            comment = await callGemini(prompt);
-            source = 'gemini';
-        } catch (e1) {
-            console.error(`[roast] Gemini failed trip ${tripId}:`, e1.message);
+        for (let i = 0; i < providers.length; i++) {
+            const { name, call } = providers[(startIdx + i) % providers.length];
             try {
-                comment = await callGroq(prompt);
-                source = 'groq';
-            } catch (e2) {
-                console.error(`[roast] Groq failed trip ${tripId}:`, e2.message);
-                comment = pickStaticRoast(riskLevel);
-                source = 'static-fallback';
+                comment = await call(prompt);
+                source = name;
+                break;
+            } catch (e) {
+                console.error(`[roast] ${name} failed trip ${tripId}:`, e.message);
             }
+        }
+        if (!comment) {
+            comment = pickStaticRoast(riskLevel);
+            source = 'static-fallback';
         }
 
         res.json({ comment, source });
