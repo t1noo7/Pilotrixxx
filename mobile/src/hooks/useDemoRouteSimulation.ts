@@ -39,8 +39,8 @@ interface DemoEventConfig {
 const EVENT_CONFIGS: Record<DemoEventType, DemoEventConfig> = {
   hard_brake: { durationMs: 1500 },
   rapid_accel: { durationMs: 1500 },
-  sharp_turn: { durationMs: 1200 },
-  lane_drift: { durationMs: 2500 },
+  sharp_turn: { durationMs: 2400 },
+  lane_drift: { durationMs: 4000 },
   // Dai hon cac event kia mot chut - "vuot toc do" thuong keo dai ca doan
   // duong chu khong phai 1 khoanh khac ngan nhu phanh/tang toc dot ngot.
   overspeed: { durationMs: 3000 },

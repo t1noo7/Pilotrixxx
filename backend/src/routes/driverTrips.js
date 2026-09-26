@@ -705,6 +705,7 @@ function buildRoastPrompt(summary, riskLevel) {
         `- Tăng tốc đột ngột: ${summary.rapid_accel_per_min} lần/phút\n` +
         `- Cua gắt: ${summary.sharp_turn_per_min} lần/phút\n` +
         `- Vượt tốc: ${Math.round((summary.overspeed_ratio || 0) * 100)}% thời gian\n` +
+        (summary.lane_drift_count > 0 ? `- Lấn làn: ${summary.lane_drift_count} lần\n` : '') +
         `- Mức rủi ro tổng: ${riskLevel}\n\n` +
         `Viết ĐÚNG 1 câu tiếng Việt CÓ DẤU ĐẦY ĐỦ (dưới 30 từ), giọng cà khịa ` +
         `chua ngoa thật sự sắc, chèn 1-2 emoji hợp ngữ cảnh cho sinh động. `
@@ -822,7 +823,7 @@ driverTripsRouter.get('/trips/:id/roast', async (req, res) => {
 
     try {
         const summaryRes = await pool.query(
-            `SELECT hard_brake_per_min, rapid_accel_per_min, sharp_turn_per_min, overspeed_ratio
+            `SELECT hard_brake_per_min, rapid_accel_per_min, sharp_turn_per_min, overspeed_ratio, lane_drift_count
              FROM trip_summary WHERE trip_id = $1`,
             [tripId]
         );

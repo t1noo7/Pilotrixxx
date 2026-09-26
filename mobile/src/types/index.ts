@@ -74,6 +74,8 @@ export interface TripSummary {
   rapid_accel_per_min: number;
   sharp_turn_per_min: number;
   overspeed_ratio: number;
+  lane_drift_count: number;
+  lane_drift_per_min: number;
   gps_invalid_count: number;
 }
 

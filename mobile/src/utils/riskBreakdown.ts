@@ -25,6 +25,7 @@ const DANGEROUS_CEILING = {
   rapid_accel_per_min: 0.9,
   sharp_turn_per_min: 0.55,
   overspeed_ratio: 0.33,
+  lane_drift_per_min: 0.4,
 } as const;
 
 function normalize(value: number, ceiling: number): number {
@@ -64,6 +65,12 @@ const COMMENTS: Record<string, [string, string, string, string]> = {
     "Có vài đoạn hơi vượt tốc - chắc đường đang vắng quá.",
     "Vượt tốc khá nhiều đoạn trong chuyến này - ga lẹ tay ghê.",
     "Đi như đang đua F1 mà quên mất đây là xe cho thuê.",
+  ],
+  lane_drift: [
+    "Đi thẳng làn ngon lành, không lăn tăn gì.",
+    "Thỉnh thoảng hơi trôi làn - chắc mải ngắm phố xá.",
+    "Lấn làn khá thường xuyên - cầm chắc vô lăng lại giùm.",
+    "Lấn làn như đang chơi bowling bằng ô tô. Tập trung lại đi bro.",
   ],
 };
 
@@ -108,6 +115,13 @@ const AXIS_CONFIGS: Array<{
     label: "Vượt tốc",
     emoji: "🥹",
     unit: "% thời gian",
+  },
+  {
+    key: "lane_drift_per_min",
+    commentKey: "lane_drift",
+    label: "Lấn làn",
+    emoji: "🥴",
+    unit: "lần/phút",
   },
 ];
 

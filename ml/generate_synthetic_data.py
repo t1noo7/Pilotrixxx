@@ -32,32 +32,35 @@ np.random.seed(RANDOM_SEED)
 SCENARIO_DISTRIBUTIONS = {
     "safe": {
         "duration_minutes": (5, 15),
-        "avg_speed":         (30, 8),   # (mean, sd) normal
-        "max_speed":         (48, 8),   # (mean, sd) normal
-        "hard_brake_per_min":  (0.05, 0.18),
+        "avg_speed": (30, 8),  # (mean, sd) normal
+        "max_speed": (48, 8),  # (mean, sd) normal
+        "hard_brake_per_min": (0.05, 0.18),
         "rapid_accel_per_min": (0.05, 0.15),
-        "sharp_turn_per_min":  (0.02, 0.10),
-        "overspeed_ratio":     (0.02, 0.04),
+        "sharp_turn_per_min": (0.02, 0.10),
+        "overspeed_ratio": (0.02, 0.04),
+        "lane_drift_per_min": (0.03, 0.12),
         "gps_invalid_rate_per_min": (0.0, 0.3),
     },
     "moderate": {
         "duration_minutes": (5, 15),
-        "avg_speed":         (46, 9),
-        "max_speed":         (68, 10),
-        "hard_brake_per_min":  (0.45, 0.30),
+        "avg_speed": (46, 9),
+        "max_speed": (68, 10),
+        "hard_brake_per_min": (0.45, 0.30),
         "rapid_accel_per_min": (0.38, 0.28),
-        "sharp_turn_per_min":  (0.22, 0.18),
-        "overspeed_ratio":     (0.13, 0.08),
+        "sharp_turn_per_min": (0.22, 0.18),
+        "overspeed_ratio": (0.13, 0.08),
+        "lane_drift_per_min": (0.18, 0.15),
         "gps_invalid_rate_per_min": (0.0, 0.3),
     },
     "dangerous": {
         "duration_minutes": (5, 15),
-        "avg_speed":         (62, 11),
-        "max_speed":         (92, 12),
-        "hard_brake_per_min":  (1.10, 0.50),
+        "avg_speed": (62, 11),
+        "max_speed": (92, 12),
+        "hard_brake_per_min": (1.10, 0.50),
         "rapid_accel_per_min": (0.90, 0.45),
-        "sharp_turn_per_min":  (0.55, 0.32),
-        "overspeed_ratio":     (0.33, 0.14),
+        "sharp_turn_per_min": (0.55, 0.32),
+        "overspeed_ratio": (0.33, 0.14),
+        "lane_drift_per_min": (0.40, 0.25),
         "gps_invalid_rate_per_min": (0.0, 0.3),
     },
 }
@@ -68,16 +71,16 @@ SCENARIO_DISTRIBUTIONS = {
 # safe-noisy: có vài sự kiện bất thường như moderate
 NOISE_OVERRIDES = {
     "safe": {
-        "hard_brake_per_min":  ("moderate", "hard_brake_per_min"),
-        "sharp_turn_per_min":  ("moderate", "sharp_turn_per_min"),
+        "hard_brake_per_min": ("moderate", "hard_brake_per_min"),
+        "sharp_turn_per_min": ("moderate", "sharp_turn_per_min"),
     },
     "moderate": {
-        "hard_brake_per_min":  ("safe", "hard_brake_per_min"),
+        "hard_brake_per_min": ("safe", "hard_brake_per_min"),
         "rapid_accel_per_min": ("safe", "rapid_accel_per_min"),
-        "overspeed_ratio":     ("safe", "overspeed_ratio"),
+        "overspeed_ratio": ("safe", "overspeed_ratio"),
     },
     "dangerous": {
-        "max_speed":       ("moderate", "max_speed"),
+        "max_speed": ("moderate", "max_speed"),
         "overspeed_ratio": ("moderate", "overspeed_ratio"),
         "hard_brake_per_min": ("moderate", "hard_brake_per_min"),
     },
@@ -105,10 +108,11 @@ def generate_trip(scenario: str, noisy: bool = False) -> dict:
     max_speed = clip_nonneg(np.random.normal(*params["max_speed"]))
     max_speed = max(max_speed, avg_speed * 1.05)
 
-    hard_brake_per_min  = sample_normal(params, "hard_brake_per_min")
+    hard_brake_per_min = sample_normal(params, "hard_brake_per_min")
     rapid_accel_per_min = sample_normal(params, "rapid_accel_per_min")
-    sharp_turn_per_min  = sample_normal(params, "sharp_turn_per_min")
-    overspeed_ratio     = min(1.0, sample_normal(params, "overspeed_ratio"))
+    sharp_turn_per_min = sample_normal(params, "sharp_turn_per_min")
+    overspeed_ratio = min(1.0, sample_normal(params, "overspeed_ratio"))
+    lane_drift_per_min = sample_normal(params, "lane_drift_per_min")
     gps_invalid_per_min = sample_normal(params, "gps_invalid_rate_per_min")
 
     # Inject noise
@@ -127,16 +131,21 @@ def generate_trip(scenario: str, noisy: bool = False) -> dict:
                 max_speed = max(clip_nonneg(val), avg_speed * 1.05)
 
     # Counts từ rate
-    hard_brake_count  = round(hard_brake_per_min  * duration_min)
+    hard_brake_count = round(hard_brake_per_min * duration_min)
     rapid_accel_count = round(rapid_accel_per_min * duration_min)
-    sharp_turn_count  = round(sharp_turn_per_min  * duration_min)
+    sharp_turn_count = round(sharp_turn_per_min * duration_min)
     overspeed_duration_seconds = round(overspeed_ratio * duration_seconds)
-    overspeed_count   = round(overspeed_duration_seconds / 5)
+    overspeed_count = round(overspeed_duration_seconds / 5)
+    lane_drift_count = round(lane_drift_per_min * duration_min)
     gps_invalid_count = round(gps_invalid_per_min * duration_min)
 
     total_events = hard_brake_count + rapid_accel_count + sharp_turn_count
-    max_accel = min(1.0, clip_nonneg(np.random.normal(0.10 + 0.06 * total_events, 0.06)))
-    max_brake_intensity = min(1.0, clip_nonneg(np.random.normal(0.20 + 0.08 * hard_brake_count, 0.10)))
+    max_accel = min(
+        1.0, clip_nonneg(np.random.normal(0.10 + 0.06 * total_events, 0.06))
+    )
+    max_brake_intensity = min(
+        1.0, clip_nonneg(np.random.normal(0.20 + 0.08 * hard_brake_count, 0.10))
+    )
 
     distance_km = round(avg_speed * (duration_seconds / 3600), 3)
 
@@ -157,6 +166,7 @@ def generate_trip(scenario: str, noisy: bool = False) -> dict:
         "rapid_accel_per_min": round(rapid_accel_count / duration_min, 3),
         "sharp_turn_per_min": round(sharp_turn_count / duration_min, 3),
         "overspeed_ratio": round(overspeed_duration_seconds / duration_seconds, 3),
+        "lane_drift_per_min": round(lane_drift_count / duration_min, 3),
         "gps_invalid_count": gps_invalid_count,
     }
 

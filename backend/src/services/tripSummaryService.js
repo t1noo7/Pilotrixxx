@@ -125,6 +125,11 @@ export async function generateTripSummary(tripId) {
         const rapidAccelCount = eventCounts['rapid_accel'] || 0;
         const sharpTurnCount = eventCounts['sharp_turn'] || 0;
         const gpsInvalidCount = eventCounts['gps_invalid'] || 0;
+        // lane_drift KHONG qua rule-engine (khong co nguong so hoc) - chi
+        // ghi nhan khi driver tu bam nut debug gia lap, nen o trip that
+        // (khong bam debug) so nay luon la 0. Van dem binh thuong cho dong
+        // bo voi 4 loai con lai.
+        const laneDriftCount = eventCounts['lane_drift'] || 0;
 
         // 6. Chuan hoa theo thoi gian (per-minute) - xem giai thich trong
         //    05_summary_risk.sql ve ly do can chuan hoa
@@ -148,6 +153,8 @@ export async function generateTripSummary(tripId) {
             overspeed_ratio:
                 durationSeconds > 0 ? Math.round((overspeedDurationSeconds / durationSeconds) * 1000) / 1000 : 0,
             gps_invalid_count: gpsInvalidCount,
+            lane_drift_count: laneDriftCount,
+            lane_drift_per_min: Math.round((laneDriftCount / safeDivMinutes) * 100) / 100,
         };
 
         // 7. UPSERT vao trip_summary (INSERT, hoac UPDATE neu da ton tai -
@@ -159,9 +166,9 @@ export async function generateTripSummary(tripId) {
         hard_brake_count, rapid_accel_count, sharp_turn_count,
         overspeed_count, overspeed_duration_seconds,
         hard_brake_per_min, rapid_accel_per_min, sharp_turn_per_min,
-        overspeed_ratio, gps_invalid_count
+        overspeed_ratio, gps_invalid_count, lane_drift_count, lane_drift_per_min
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
       )
       ON CONFLICT (trip_id) DO UPDATE SET
         duration_seconds = EXCLUDED.duration_seconds,
@@ -180,6 +187,8 @@ export async function generateTripSummary(tripId) {
         sharp_turn_per_min = EXCLUDED.sharp_turn_per_min,
         overspeed_ratio = EXCLUDED.overspeed_ratio,
         gps_invalid_count = EXCLUDED.gps_invalid_count,
+        lane_drift_count = EXCLUDED.lane_drift_count,
+        lane_drift_per_min = EXCLUDED.lane_drift_per_min,
         computed_at = now()`,
             [
                 tripId,
@@ -199,6 +208,8 @@ export async function generateTripSummary(tripId) {
                 summary.sharp_turn_per_min,
                 summary.overspeed_ratio,
                 summary.gps_invalid_count,
+                summary.lane_drift_count,
+                summary.lane_drift_per_min,
             ]
         );
 

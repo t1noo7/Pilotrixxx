@@ -62,6 +62,7 @@ FEATURES = [
     "sharp_turn_per_min",
     "overspeed_ratio",
     "overspeed_count",
+    "lane_drift_per_min",
     "gps_invalid_count",
 ]
 LABEL_COL = "scenario"
