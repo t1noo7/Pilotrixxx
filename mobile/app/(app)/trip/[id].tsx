@@ -128,6 +128,10 @@ export default function TripScreen() {
   // ma khong co ket qua.
   const [aiComment, setAiComment] = useState<string | null>(null);
   const [aiCommentLoading, setAiCommentLoading] = useState(false);
+  const [aiAxisComments, setAiAxisComments] = useState<Record<
+    string,
+    string
+  > | null>(null);
   const [rating, setRating] = useState(0);
   const [ratingSubmitting, setRatingSubmitting] = useState(false);
   // Diem xuat phat cho route mo phong - lay 1 lan qua getCurrentPositionAsync
@@ -496,10 +500,14 @@ export default function TripScreen() {
     if (aiComment !== null || aiCommentLoading) return; // da fetch roi
     setAiCommentLoading(true);
     getTripRoast(tripId)
-      .then((res) => setAiComment(res.comment))
+      .then((res) => {
+        setAiComment(res.comment);
+        setAiAxisComments(res.axisComments ?? null);
+      })
       .catch((e) => {
         console.error("[roast] fetch failed, fallback ve cau tinh:", e.message);
         setAiComment(null); // giu null - JSX se tu fallback ve finalComment tinh
+        setAiAxisComments(null);
       })
       .finally(() => setAiCommentLoading(false));
   }, [breakdownExpanded, result?.summary, tripId]);
@@ -1096,7 +1104,7 @@ export default function TripScreen() {
                           </Text>
                         </View>
                         <Text style={styles.breakdownRowComment}>
-                          {a.comment}
+                          {aiAxisComments?.[a.key] ?? a.comment}
                         </Text>
                       </View>
                     ))}

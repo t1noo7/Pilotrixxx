@@ -319,6 +319,11 @@ export function useDemoRouteSimulation(
   // khac chay do, event moi ghi de len (khong queue) - dung cho muc dich
   // demo don gian, khong can hang doi phuc tap.
   function triggerEvent(type: DemoEventType) {
+    const current = activeEventRef.current;
+    // Dang chay dung loai nay roi - khong reset lai tu dau, tranh spam bam
+    // lien tuc lam offset khong bao gio kip len toi dinh (nhin "thang bang"
+    // do t luon bi ep ve 0 truoc khi ramp-up kip hoan tat).
+    if (current && current.type === type) return;
     activeEventRef.current = { type, startedAt: Date.now() };
   }
 

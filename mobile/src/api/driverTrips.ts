@@ -144,9 +144,11 @@ export async function setRouteMode(
   return data;
 }
 
-export async function getTripRoast(
-  tripId: string,
-): Promise<{ comment: string; source: string }> {
+export async function getTripRoast(tripId: string): Promise<{
+  comment: string;
+  source: string;
+  axisComments: Record<string, string> | null;
+}> {
   const { data } = await apiClient.get(`/api/driver/trips/${tripId}/roast`);
   return data;
 }

@@ -707,8 +707,15 @@ function buildRoastPrompt(summary, riskLevel) {
         `- Vượt tốc: ${Math.round((summary.overspeed_ratio || 0) * 100)}% thời gian\n` +
         (summary.lane_drift_count > 0 ? `- Lấn làn: ${summary.lane_drift_count} lần\n` : '') +
         `- Mức rủi ro tổng: ${riskLevel}\n\n` +
-        `Viết ĐÚNG 1 câu tiếng Việt CÓ DẤU ĐẦY ĐỦ (dưới 30 từ), giọng cà khịa ` +
-        `chua ngoa thật sự sắc, chèn 1-2 emoji hợp ngữ cảnh cho sinh động. `
+        `Trả lời DUY NHẤT 1 object JSON hợp lệ, không kèm markdown/backtick, không ` +
+        `thêm chữ nào ngoài JSON, đúng format:\n` +
+        `{"overall":"...","hard_brake":"...","rapid_accel":"...","sharp_turn":"...","overspeed":"..."` +
+        (summary.lane_drift_count > 0 ? `,"lane_drift":"..."` : '') +
+        `}\n` +
+        `Mỗi giá trị là ĐÚNG 1 câu tiếng Việt có dấu đầy đủ (dưới 25 từ), giọng cà khịa ` +
+        `chua ngoa, chèn 1-2 emoji hợp ngữ cảnh. "overall" nhận xét tổng quan cả chuyến; ` +
+        `mỗi field còn lại nhận xét RIÊNG đúng hành vi đó dựa theo số liệu ở trên - nếu ` +
+        `số liệu hành vi đó thấp/tốt thì khen kiểu đá đểu, cà khịa, tục tĩu.`
     );
 }
 
@@ -770,7 +777,6 @@ async function callGroq(prompt) {
         if (!res.ok) throw new Error(`Groq HTTP ${res.status}`);
         const data = await res.json();
         const text = data?.choices?.[0]?.message?.content;
-        console.log(`[roast] Groq raw response trip debug:`, JSON.stringify(data));
         if (!text || !text.trim()) throw new Error('Groq tra ve rong');
         return text.trim();
     } finally {
@@ -805,6 +811,29 @@ async function callMistral(prompt) {
     } finally {
         clearTimeout(timeout);
     }
+}
+
+const ROAST_AXIS_KEYS = ['hard_brake', 'rapid_accel', 'sharp_turn', 'overspeed', 'lane_drift'];
+
+/**
+ * Parse JSON AI tra ve (co the bi bao markdown ```json...``` du prompt da
+ * yeu cau khong lam vay - model free tier hay lam sai). Parse fail hoac
+ * thieu "overall" hop le -> throw, coi nhu provider nay fail, cascade
+ * sang provider ke tiep giong timeout/rong (khong lam sap ca route).
+ */
+function parseRoastJson(raw) {
+    const cleaned = raw.replace(/```json|```/g, '').trim();
+    const data = JSON.parse(cleaned);
+    if (!data.overall || typeof data.overall !== 'string' || !data.overall.trim()) {
+        throw new Error('AI JSON thieu truong overall hop le');
+    }
+    const axisComments = {};
+    for (const key of ROAST_AXIS_KEYS) {
+        if (typeof data[key] === 'string' && data[key].trim()) {
+            axisComments[key] = data[key].trim();
+        }
+    }
+    return { overall: data.overall.trim(), axisComments };
 }
 
 /**
@@ -852,11 +881,15 @@ driverTripsRouter.get('/trips/:id/roast', async (req, res) => {
         const startIdx = tripId % providers.length;
 
         let comment;
+        let axisComments = null;
         let source;
         for (let i = 0; i < providers.length; i++) {
             const { name, call } = providers[(startIdx + i) % providers.length];
             try {
-                comment = await call(prompt);
+                const raw = await call(prompt);
+                const parsed = parseRoastJson(raw);
+                comment = parsed.overall;
+                axisComments = parsed.axisComments;
                 source = name;
                 break;
             } catch (e) {
@@ -868,7 +901,7 @@ driverTripsRouter.get('/trips/:id/roast', async (req, res) => {
             source = 'static-fallback';
         }
 
-        res.json({ comment, source });
+        res.json({ comment, source, axisComments });
     } catch (err) {
         console.error(`[GET /driver/trips/:id/roast] Error trip ${tripId}:`, err.message);
         // Ngay ca loi DB cung khong duoc de driver thay man hinh trang -
