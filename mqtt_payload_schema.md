@@ -100,7 +100,8 @@ Retain: false
     "satellites": 9,
     "speed": 45.2,
     "speedLimit": 50,
-    "heading": 187.5
+    "heading": 187.5,
+    "headingOffsetDeg": 0
   },
 
   "acceleration": {
@@ -130,25 +131,26 @@ da biet ca hai thong qua `trips.trip_id` (tra bang JOIN khi can).
 
 ### Field mapping -> telemetry_raw
 
-| JSON path               | Cot DB                | Ghi chu                                    |
-| ----------------------- | --------------------- | ------------------------------------------ |
-| `vehicleId`             | `vehicle_id`          | BIGINT, lay tu response `/api/trips/start` |
-| `tripId`                | `trip_id`             | BIGINT, lay tu response `/api/trips/start` |
-| `ts`                    | `ts`                  | ISO 8601 UTC                               |
-| `position.latitude`     | `latitude`            |                                            |
-| `position.longitude`    | `longitude`           |                                            |
-| `position.valid`        | `position_valid`      | mo phong GPS loi (~2-3% so ban ghi)        |
-| `position.satellites`   | `satellites`          | 0 khi `valid=false`                        |
-| `position.speed`        | `speed`               | km/h                                       |
-| `position.speedLimit`   | `speed_limit`         | gia lap theo "doan duong"                  |
-| `position.heading`      | `heading`             | 0-360 do                                   |
-| `acceleration.x/y/z`    | `accel_x/y/z`         | don vi g                                   |
-| `brakeIntensity`        | `brake_intensity`     | 0.0 - 1.0, simulator tu tinh               |
-| `engine.ignitionStatus` | `ignition_status`     |                                            |
-| `engine.rpm`            | `engine_rpm`          |                                            |
-| `device.batteryLevel`   | `battery_level`       | 0-100                                      |
-| `device.gsmSignal`      | `gsm_signal`          | 0-100                                      |
-| (toan bo payload)       | `raw_payload` (JSONB) | luu nguyen JSON nay                        |
+| JSON path                   | Cot DB                | Ghi chu                                    |
+| --------------------------- | --------------------- | ------------------------------------------ |
+| `vehicleId`                 | `vehicle_id`          | BIGINT, lay tu response `/api/trips/start` |
+| `tripId`                    | `trip_id`             | BIGINT, lay tu response `/api/trips/start` |
+| `ts`                        | `ts`                  | ISO 8601 UTC                               |
+| `position.latitude`         | `latitude`            |                                            |
+| `position.longitude`        | `longitude`           |                                            |
+| `position.valid`            | `position_valid`      | mo phong GPS loi (~2-3% so ban ghi)        |
+| `position.satellites`       | `satellites`          | 0 khi `valid=false`                        |
+| `position.speed`            | `speed`               | km/h                                       |
+| `position.speedLimit`       | `speed_limit`         | gia lap theo "doan duong"                  |
+| `position.heading`          | `heading`             | 0-360 do                                   |
+| `acceleration.x/y/z`        | `accel_x/y/z`         | don vi g                                   |
+| `brakeIntensity`            | `brake_intensity`     | 0.0 - 1.0, simulator tu tinh               |
+| `engine.ignitionStatus`     | `ignition_status`     |                                            |
+| `engine.rpm`                | `engine_rpm`          |                                            |
+| `device.batteryLevel`       | `battery_level`       | 0-100                                      |
+| `device.gsmSignal`          | `gsm_signal`          | 0-100                                      |
+| (toan bo payload)           | `raw_payload` (JSONB) | luu nguyen JSON nay                        |
+| `position.headingOffsetDeg` | `heading_offset_deg`  | gia lap "lan lan" - 0 khi khong co su kien |
 
 ---
 

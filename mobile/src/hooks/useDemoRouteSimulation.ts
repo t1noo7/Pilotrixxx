@@ -272,11 +272,18 @@ export function useDemoRouteSimulation(
             // nhanh, khac han kieu lech-giu 1 huong cua lane_drift.
             offsetM = Math.sin(t * Math.PI * 4) * SHARP_TURN_OFFSET_M;
           }
+          // Toc do cang cao, xe di duoc cang nhieu met/tick - offset co dinh
+          // (met) se "chim" ti le so voi quang duong di duoc, nhin nhu di
+          // thang (dung nhu mày vua test thay). Nhan them theo ti le
+          // speed/BASE_SPEED_MPS (san 1, khong bao gio nho hon muc binh
+          // thuong) de do lech luon ro bat ke dang o hieu ung tang toc/vuot
+          // toc nao khac hay khong.
+          const speedScale = Math.max(1, speed / BASE_SPEED_MPS);
           const offset = offsetPoint(
             latitude,
             longitude,
             headingDeg + 90, // vuong goc ben phai huong di
-            offsetM,
+            offsetM * speedScale,
           );
           displayLatitude = offset.latitude;
           displayLongitude = offset.longitude;

@@ -22,6 +22,7 @@ const THRESHOLDS = {
     rapid_accel: { medium: 0.25, high: 0.4 },          // accel_y (g)
     sharp_turn: { medium: 0.3, high: 0.5 },            // |accel_x| (g)
     overspeed: { medium: 1.05, high: 1.2 },            // speed / speed_limit
+    lane_drift: { medium: 8, high: 15 },              // |heading_offset_deg|
 };
 
 /**
@@ -68,6 +69,14 @@ function detectEvents(row) {
         events.push({ event_type: 'sharp_turn', severity: 'medium', metric_value: { accel_x: row.accel_x } });
     }
 
+    // --- Rule: lane_drift ---
+    const headingOffset = Math.abs(row.heading_offset_deg ?? 0);
+    if (headingOffset >= THRESHOLDS.lane_drift.high) {
+        events.push({ event_type: 'lane_drift', severity: 'high', metric_value: { heading_offset_deg: row.heading_offset_deg } });
+    } else if (headingOffset >= THRESHOLDS.lane_drift.medium) {
+        events.push({ event_type: 'lane_drift', severity: 'medium', metric_value: { heading_offset_deg: row.heading_offset_deg } });
+    }
+
     // --- Rule: overspeed ---
     if (row.speed_limit && row.speed_limit > 0) {
         const ratio = row.speed / row.speed_limit;
@@ -103,6 +112,8 @@ function buildAlertMessage(event, row) {
             return `Danh lai gap luc ${time}`;
         case 'overspeed':
             return `Vuot toc do luc ${time} - ${event.metric_value.speed}km/h (gioi han ${event.metric_value.speed_limit}km/h)`;
+        case 'lane_drift':
+            return `Lech lan luc ${time} - lech ${Math.abs(event.metric_value.heading_offset_deg).toFixed(0)} do`;
         case 'gps_invalid':
             return `Mat tin hieu GPS luc ${time}`;
         default:

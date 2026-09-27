@@ -9,6 +9,7 @@ Luong (theo mqtt_payload_schema.md, Cach A):
 
 import argparse
 import json
+import math
 import random
 import ssl
 import time
@@ -213,6 +214,26 @@ def build_mqtt_client(client_id_suffix: str) -> mqtt.Client:
     return client
 
 
+EARTH_RADIUS_M = 6371000
+LANE_DRIFT_OFFSET_M = 3.2  # ~1 lan duong pho o VN - dung chung so voi mobile
+SHARP_TURN_OFFSET_M = 2.2
+LANE_DRIFT_TICKS = 3  # ~15s o tan suat 5s/diem: len - giu - ve
+SHARP_TURN_TICKS = 2  # ~10s - dot ngot hon lane_drift
+
+
+def _offset_point(lat, lng, bearing_deg, distance_m):
+    """Dich 1 diem GPS theo huong bearing_deg, khoang cach distance_m -
+    xap xi phang (equirectangular), du chinh xac cho offset vai met. Dung
+    chung cong thuc voi offsetPoint() ben mobile (useDemoRouteSimulation.ts)
+    de 2 noi cho ra hinh dang lech giong nhau."""
+    bearing_rad = math.radians(bearing_deg)
+    d_lat = (distance_m * math.cos(bearing_rad)) / EARTH_RADIUS_M
+    d_lng = (distance_m * math.sin(bearing_rad)) / (
+        EARTH_RADIUS_M * math.cos(math.radians(lat))
+    )
+    return lat + math.degrees(d_lat), lng + math.degrees(d_lng)
+
+
 def run_simulation(
     device_ident: str,
     scenario: str,
@@ -246,6 +267,10 @@ def run_simulation(
         route = RouteState(lat=start_lat, lng=start_lng)
         speed_limit = pick_speed_limit(route.lat, route.lng)
         prev_speed = random.uniform(20, 40)
+        # Swerve gia lap (lane_drift/sharp_turn) dang chay, None = khong co
+        # gi. Chi 1 slot - event moi ghi de neu event cu da xong (giong
+        # tinh than "khong queue" ben mobile).
+        active_swerve = None
 
         # Xe duoc goi di don driver ngay tu dau (khong can doi stop_event
         # giua chung) - dung cho truong hop xe dang dung yen, khong co
@@ -388,6 +413,45 @@ def run_simulation(
 
             lat, lng, heading = route.step(point["speed"])
 
+            # --- Swerve gia lap (lane_drift/sharp_turn) - lech VI TRI HIEN
+            # THI tam thoi de len dashboard, KHONG anh huong quang duong
+            # that (route.step() da tinh dung o tren) - dung tinh than y
+            # het useDemoRouteSimulation.ts ben mobile.
+            if active_swerve is None and point["event_type"] in (
+                "lane_drift",
+                "sharp_turn",
+            ):
+                total_ticks = (
+                    LANE_DRIFT_TICKS
+                    if point["event_type"] == "lane_drift"
+                    else SHARP_TURN_TICKS
+                )
+                active_swerve = {
+                    "type": point["event_type"],
+                    "tick": 0,
+                    "total": total_ticks,
+                }
+
+            display_lat, display_lng = lat, lng
+            if active_swerve is not None:
+                t = active_swerve["tick"] / max(1, active_swerve["total"] - 1)
+                if active_swerve["type"] == "lane_drift":
+                    ramp = 0.3
+                    if t < ramp:
+                        offset_m = (t / ramp) * LANE_DRIFT_OFFSET_M
+                    elif t < 1 - ramp:
+                        offset_m = LANE_DRIFT_OFFSET_M
+                    else:
+                        offset_m = ((1 - t) / ramp) * LANE_DRIFT_OFFSET_M
+                else:
+                    offset_m = math.sin(t * math.pi * 2) * SHARP_TURN_OFFSET_M
+                display_lat, display_lng = _offset_point(
+                    lat, lng, heading + 90, offset_m
+                )
+                active_swerve["tick"] += 1
+                if active_swerve["tick"] >= active_swerve["total"]:
+                    active_swerve = None
+
             eta_seconds_remaining = None
             if (
                 heading_to_target
@@ -404,8 +468,8 @@ def run_simulation(
                 .isoformat(timespec="milliseconds")
                 .replace("+00:00", "Z"),
                 "position": {
-                    "latitude": round(lat, 6),
-                    "longitude": round(lng, 6),
+                    "latitude": round(display_lat, 6),
+                    "longitude": round(display_lng, 6),
                     "valid": point["position_valid"],
                     "satellites": point["satellites"],
                     "speed": point["speed"],

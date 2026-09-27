@@ -39,11 +39,12 @@ def generate_telemetry_point(scenario: str, speed_limit: float, prev_speed: floa
     accel_y = round(random.uniform(-0.05, 0.05), 3)
     accel_z = round(random.uniform(0.95, 1.02), 3)  # ~1g khi xe nam ngang
     brake_intensity = 0.0
+    heading_offset_deg = 0.0
 
     # --- Quyet dinh co xay ra "su kien" o buoc nay khong ---
     if random.random() < params["event_probability"]:
         event_type = random.choice(
-            ["hard_brake", "rapid_accel", "sharp_turn", "overspeed"]
+            ["hard_brake", "rapid_accel", "sharp_turn", "overspeed", "lane_drift"]
         )
 
     if event_type == "hard_brake":
@@ -66,6 +67,13 @@ def generate_telemetry_point(scenario: str, speed_limit: float, prev_speed: floa
         # Vuot toc do: speed > speed_limit theo ty le toi da cua kich ban
         max_ratio = params["max_overspeed_ratio"]
         speed = round(speed_limit * random.uniform(1.05, max_ratio), 1)
+
+    elif event_type == "lane_drift":
+        # Lan lan: KHONG danh lai manh (accel_x/y giu muc binh thuong nhu
+        # khong co su kien - phan biet ro voi sharp_turn), chi lech heading
+        # bao cao tam thoi, dau ngau nhien trai/phai. Nguong ruleEngine.js:
+        # medium=8, high=15 do.
+        heading_offset_deg = round(random.choice([-1, 1]) * random.uniform(10, 25), 1)
 
     else:
         # Khong co su kien dac biet: dao dong nhe quanh toc do hien tai,
@@ -93,6 +101,7 @@ def generate_telemetry_point(scenario: str, speed_limit: float, prev_speed: floa
 
     return {
         "speed": speed,
+        "heading_offset_deg": heading_offset_deg,
         "accel_x": accel_x,
         "accel_y": accel_y,
         "accel_z": accel_z,

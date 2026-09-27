@@ -45,7 +45,7 @@ export async function handleTelemetryMessage(topic, payload) {
             `INSERT INTO telemetry_raw (
         trip_id, vehicle_id, ts,
         latitude, longitude, position_valid, satellites,
-        speed, speed_limit, heading,
+        speed, speed_limit, heading, heading_offset_deg,
         accel_x, accel_y, accel_z, brake_intensity,
         ignition_status, engine_rpm,
         battery_level, gsm_signal,
@@ -53,18 +53,18 @@ export async function handleTelemetryMessage(topic, payload) {
       ) VALUES (
         $1, $2, $3,
         $4, $5, $6, $7,
-        $8, $9, $10,
-        $11, $12, $13, $14,
-        $15, $16,
-        $17, $18,
-        $19
+        $8, $9, $10, $11,
+        $12, $13, $14, $15,
+        $16, $17,
+        $18, $19,
+        $20
       )
       ON CONFLICT (vehicle_id, ts) DO NOTHING
       RETURNING id`,
             [
                 tripId, vehicleId, ts,
                 position?.latitude, position?.longitude, position?.valid, position?.satellites,
-                position?.speed, position?.speedLimit, position?.heading,
+                position?.speed, position?.speedLimit, position?.heading, position?.headingOffsetDeg ?? 0,
                 acceleration?.x, acceleration?.y, acceleration?.z, brakeIntensity,
                 engine?.ignitionStatus, engine?.rpm,
                 device?.batteryLevel, device?.gsmSignal,
@@ -156,6 +156,7 @@ export async function handleTelemetryMessage(topic, payload) {
             accel_x: acceleration?.x,
             accel_y: acceleration?.y,
             accel_z: acceleration?.z,
+            heading_offset_deg: position?.headingOffsetDeg,
         });
 
         await client.query('COMMIT');
