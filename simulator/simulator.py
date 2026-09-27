@@ -475,6 +475,7 @@ def run_simulation(
                     "speed": point["speed"],
                     "speedLimit": speed_limit,
                     "heading": round(heading, 1),
+                    "headingOffsetDeg": point["heading_offset_deg"],
                 },
                 "acceleration": {
                     "x": point["accel_x"],
