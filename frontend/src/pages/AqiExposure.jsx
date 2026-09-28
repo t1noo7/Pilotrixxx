@@ -24,6 +24,14 @@ const tooltipStyle = {
   fontSize: 12,
 };
 
+function niceAxis(maxVal) {
+  const step = maxVal <= 1 ? 0.1 : maxVal <= 5 ? 0.5 : 1;
+  const top = Math.max(step, Math.ceil(maxVal / step) * step);
+  const ticks = [];
+  for (let v = 0; v <= top + 1e-9; v += step) ticks.push(Number(v.toFixed(2)));
+  return { top, ticks };
+}
+
 export default function AqiExposure() {
   const [weeks, setWeeks] = useState(8);
   const [data, setData] = useState(null);
@@ -44,6 +52,9 @@ export default function AqiExposure() {
       .finally(() => setLoading(false));
   }, [weeks]);
 
+  const axis = niceAxis(
+    Math.max(0, ...(data?.drivers.map((d) => d.episodesPerWeek) ?? [0])),
+  );
   const empty = data && data.drivers.length === 0;
 
   return (
@@ -123,7 +134,8 @@ export default function AqiExposure() {
                 margin: "0 0 12px",
               }}
             >
-              Số episode phơi nhiễm cao trung bình mỗi tuần
+              Số episode phơi nhiễm cao trung bình mỗi tuần (tính trên{" "}
+              {data.effectiveWeeks} tuần có dữ liệu)
             </p>
             <ResponsiveContainer
               width="100%"
@@ -139,7 +151,8 @@ export default function AqiExposure() {
                   type="number"
                   stroke={AXIS}
                   fontSize={12}
-                  allowDecimals
+                  domain={[0, axis.top]}
+                  ticks={axis.ticks}
                 />
                 <YAxis
                   type="category"

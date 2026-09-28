@@ -14,6 +14,17 @@ aqiExposureRouter.get('/summary', async (req, res) => {
     const weeks = Math.min(Math.max(parseInt(req.query.weeks) || 8, 1), 26);
 
     try {
+        const spanRes = await pool.query(`
+            SELECT MIN(t.ended_at) AS first_ended
+            FROM trip_aqi_exposure e
+            JOIN trips t ON t.trip_id = e.trip_id
+                        AND t.status = 'completed'
+                        AND t.ended_at >= now() - ($1::int * interval '7 days')
+        `, [weeks]);
+        const firstEnded = spanRes.rows[0]?.first_ended;
+        const spanDays = firstEnded ? (Date.now() - new Date(firstEnded).getTime()) / 86400000 : 0;
+        const effectiveWeeks = Math.min(weeks, Math.max(1, Math.ceil(spanDays / 7)));
+
         const rankingRes = await pool.query(`
             SELECT
                 d.driver_id, d.full_name,
@@ -46,12 +57,13 @@ aqiExposureRouter.get('/summary', async (req, res) => {
 
         res.json({
             weeks,
+            effectiveWeeks,
             drivers: rankingRes.rows.map((r) => ({
                 driverId: Number(r.driver_id),
                 fullName: r.full_name,
                 trips: Number(r.trips),
                 totalEpisodes: Number(r.total_episodes),
-                episodesPerWeek: Number((Number(r.total_episodes) / weeks).toFixed(2)),
+                episodesPerWeek: Number((Number(r.total_episodes) / effectiveWeeks).toFixed(2)),
                 highMinutes: Number(Number(r.high_minutes).toFixed(1)),
             })),
             trend: trendRes.rows.map((r) => ({
