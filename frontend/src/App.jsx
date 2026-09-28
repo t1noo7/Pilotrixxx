@@ -8,6 +8,7 @@ import Alerts from "./pages/Alerts.jsx";
 import Drivers from "./pages/Drivers.jsx";
 import NotFound from "./pages/NotFound.jsx";
 import TripReplay from "./pages/TripReplay.jsx";
+import AqiExposure from "./pages/AqiExposure.jsx";
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="map" element={<FleetMap />} />
         <Route path="alerts" element={<Alerts />} />
         <Route path="drivers" element={<Drivers />} />
+        <Route path="aqi-exposure" element={<AqiExposure />} />
         <Route path="trips/:id" element={<TripReplay />} />
       </Route>
 
