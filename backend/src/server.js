@@ -17,6 +17,7 @@ import { verifyToken, verifyDriverToken } from './middleware/authMiddleware.js';
 import { driverAuthRouter } from './routes/driverAuth.js';
 import { driverTripsRouter, handleVehicleReady, handleVehicleFailed } from './routes/driverTrips.js';
 import { aqiRouter } from './routes/aqi.js';
+import { aqiExposureRouter } from './routes/aqiExposure.js';
 
 dotenv.config();
 
@@ -143,6 +144,7 @@ app.use('/api/drivers', verifyToken, driversRouter);
 app.use('/api/alerts', verifyToken, alertsRouter);
 app.use('/api/dashboard', verifyToken, dashboardRouter);
 app.use('/api/risk-scores', verifyToken, riskScoresRouter);
+app.use('/api/aqi-exposure', verifyToken, aqiExposureRouter);
 app.use('/api/telemetry/live', verifyToken, telemetryLiveRouter);
 
 const PORT = process.env.PORT || 3000;
