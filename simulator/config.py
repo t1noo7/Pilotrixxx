@@ -33,8 +33,8 @@ TRIP_DURATION_MAX_SECONDS = 15 * 60
 # thuc te tu OSRM (giay) nhan voi he so an toan ngau nhien trong khoang
 # nay, thay vi random co dinh 5-15p khong lien quan gi den quang duong
 # thuc te - tranh bi cat ngang giua chung khi quang duong xa hon 1 chut.
-REPOSITION_ETA_MIN_FACTOR = 1.5
-REPOSITION_ETA_MAX_FACTOR = 2.0
+REPOSITION_ETA_MIN_FACTOR = 1.05
+REPOSITION_ETA_MAX_FACTOR = 1.2
 # San duration toi thieu (giay) - phong truong hop ETA qua nho (xe da gan
 # sat driver) khien num_points ve 0 hoac qua it diem telemetry.
 REPOSITION_MIN_DURATION_SECONDS = 30
@@ -77,7 +77,7 @@ SCENARIO_PARAMS = {
         # Xe tu lai khong nguoi (dieu xe toi don driver) - khong mo phong
         # hanh vi lai nguy hiem, event_probability=0 de khong bao gio sinh
         # hard_brake/rapid_accel/sharp_turn/overspeed gia.
-        "speed_range": (30, 55),
+        "speed_range": (40, 70),
         "event_probability": 0,
         "max_overspeed_ratio": 1.0,
     },
