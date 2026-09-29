@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiClient } from "../api/client.js";
 import { socket } from "../api/socket.js";
 import { Link } from "react-router-dom";
+import { useNotifications } from "../context/NotificationContext.jsx";
 
 const EVENT_LABELS = {
   hard_brake: "Phanh gấp",
@@ -34,6 +35,7 @@ export default function Alerts() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [justArrivedId, setJustArrivedId] = useState(null); // để tạo hiệu ứng nhấp nháy alert mới
+  const { markAllRead } = useNotifications();
 
   const fetchAlerts = useCallback(
     (showLoading = false) => {
@@ -57,7 +59,8 @@ export default function Alerts() {
   // Load lại mỗi khi đổi filter
   useEffect(() => {
     fetchAlerts(true);
-  }, [fetchAlerts]);
+    markAllRead(); // mo trang Canh bao coi nhu da xem het badge dang dem
+  }, [fetchAlerts, markAllRead]);
 
   // Có alert mới từ Socket.IO -> gọi lại API để lấy đúng alert_id thật từ DB
   useEffect(() => {

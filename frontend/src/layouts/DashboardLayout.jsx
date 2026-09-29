@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
+import AlertToastStack from "../components/AlertToast.jsx";
+import { useNotifications } from "../context/NotificationContext.jsx";
 
 const NAV_ITEMS = [
   { to: "/", label: "Tổng quan", end: true },
@@ -12,6 +14,7 @@ const NAV_ITEMS = [
 
 export default function DashboardLayout() {
   const { admin, logout } = useAuth();
+  const { unreadCount } = useNotifications();
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -63,9 +66,17 @@ export default function DashboardLayout() {
                 style={({ isActive }) => ({
                   ...styles.navLink,
                   ...(isActive ? styles.navLinkActive : {}),
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
                 })}
               >
                 {item.label}
+                {item.to === "/alerts" && unreadCount > 0 && (
+                  <span style={styles.navBadge}>
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
               </NavLink>
             ))}
           </nav>
@@ -87,6 +98,7 @@ export default function DashboardLayout() {
       <main style={styles.content}>
         <Outlet />
       </main>
+      <AlertToastStack />
     </div>
   );
 }
@@ -160,6 +172,16 @@ const styles = {
   navLinkActive: {
     color: "var(--text-primary)",
     background: "var(--bg-surface)",
+  },
+  navBadge: {
+    background: "var(--risk-dangerous)",
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: 600,
+    borderRadius: 999,
+    padding: "1px 7px",
+    minWidth: 18,
+    textAlign: "center",
   },
   sidebarFooter: {
     display: "flex",
