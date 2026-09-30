@@ -23,7 +23,9 @@ const MAX_TOASTS = 3;
 const TOAST_TTL_MS = 6000;
 
 export function NotificationProvider({ children }) {
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [notifPermission, setNotifPermission] = useState(() =>
+    "Notification" in window ? Notification.permission : "unsupported",
+  );
   const [toasts, setToasts] = useState([]);
   const timersRef = useRef({});
 
@@ -34,6 +36,10 @@ export function NotificationProvider({ children }) {
   }, []);
 
   const markAllRead = useCallback(() => setUnreadCount(0), []);
+  const requestNotifPermission = useCallback(() => {
+    if (!("Notification" in window)) return;
+    Notification.requestPermission().then(setNotifPermission);
+  }, []);
 
   useEffect(() => {
     function handleAlert(payload) {
@@ -85,7 +91,14 @@ export function NotificationProvider({ children }) {
 
   return (
     <NotificationContext.Provider
-      value={{ unreadCount, markAllRead, toasts, dismissToast }}
+      value={{
+        unreadCount,
+        markAllRead,
+        toasts,
+        dismissToast,
+        notifPermission,
+        requestNotifPermission,
+      }}
     >
       {children}
     </NotificationContext.Provider>

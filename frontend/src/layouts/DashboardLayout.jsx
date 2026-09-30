@@ -14,7 +14,9 @@ const NAV_ITEMS = [
 
 export default function DashboardLayout() {
   const { admin, logout } = useAuth();
-  const { unreadCount } = useNotifications();
+  const { unreadCount, notifPermission, requestNotifPermission } =
+    useNotifications();
+  const [notifDismissed, setNotifDismissed] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -98,6 +100,26 @@ export default function DashboardLayout() {
       <main style={styles.content}>
         <Outlet />
       </main>
+      {notifPermission === "default" && !notifDismissed && (
+        <div style={styles.notifCard}>
+          <span style={styles.notifIcon}>🔔</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={styles.notifTitle}>Bật thông báo trình duyệt</div>
+            <div style={styles.notifDesc}>
+              Nhận cảnh báo ngay cả khi không mở tab này
+            </div>
+          </div>
+          <button onClick={requestNotifPermission} style={styles.notifBtn}>
+            Bật
+          </button>
+          <button
+            onClick={() => setNotifDismissed(true)}
+            style={styles.notifDismiss}
+          >
+            ×
+          </button>
+        </div>
+      )}
       <AlertToastStack />
     </div>
   );
@@ -182,6 +204,56 @@ const styles = {
     padding: "1px 7px",
     minWidth: 18,
     textAlign: "center",
+  },
+  notifCard: {
+    position: "fixed",
+    bottom: 16,
+    left: 16,
+    zIndex: 150,
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    width: 280,
+    background: "var(--bg-surface)",
+    border: "1px solid var(--border-subtle)",
+    borderRadius: "var(--radius-sm)",
+    padding: "10px 12px",
+    boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
+  },
+  notifIcon: {
+    fontSize: 16,
+    flexShrink: 0,
+  },
+  notifTitle: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--text-primary)",
+  },
+  notifDesc: {
+    fontSize: 11,
+    color: "var(--text-muted)",
+    marginTop: 1,
+  },
+  notifBtn: {
+    background: "var(--accent)",
+    border: "none",
+    color: "#0b1220",
+    borderRadius: "var(--radius-sm)",
+    padding: "5px 10px",
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  notifDismiss: {
+    background: "transparent",
+    border: "none",
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    fontSize: 15,
+    lineHeight: 1,
+    padding: 0,
+    flexShrink: 0,
   },
   sidebarFooter: {
     display: "flex",
