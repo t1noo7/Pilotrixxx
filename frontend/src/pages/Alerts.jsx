@@ -66,6 +66,7 @@ export default function Alerts() {
   useEffect(() => {
     function handleNewAlert(payload) {
       fetchAlerts(false);
+      markAllRead(); // dang mo trang nay -> alert moi cung coi nhu da xem, khoi de badge tang nham
       // Đánh dấu tạm để làm hiệu ứng nhấp nháy dòng đầu (dùng vehicleId+occurredAt
       // làm khoá tạm vì chưa có alert_id thật lúc này)
       const tempKey = `${payload.vehicleId}-${payload.occurredAt}`;
@@ -74,7 +75,7 @@ export default function Alerts() {
     }
     socket.on("alert", handleNewAlert);
     return () => socket.off("alert", handleNewAlert);
-  }, [fetchAlerts]);
+  }, [fetchAlerts, markAllRead]);
 
   function markAsRead(alertId) {
     // Cập nhật lạc quan (optimistic) trước, rollback nếu API lỗi
