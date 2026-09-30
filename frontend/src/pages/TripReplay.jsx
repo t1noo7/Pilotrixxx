@@ -17,6 +17,7 @@ import {
   DEFAULT_EVENT_STYLE,
 } from "../constants/riskEvents.js";
 import { buildIcon } from "./FleetMap.jsx";
+import SovereigntyOverlay from "../components/SovereigntyOverlay.jsx";
 
 const RISK_LABEL = {
   safe: "An toàn",
@@ -396,6 +397,7 @@ export default function TripReplay() {
             position={current ? [current.lat, current.lng] : null}
             allPositions={positions}
           />
+          <SovereigntyOverlay />
           {aqiSegments ? (
             aqiSegments.map((seg, i) => (
               <Polyline

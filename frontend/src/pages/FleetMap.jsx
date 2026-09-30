@@ -12,6 +12,7 @@ import {
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { apiClient } from "../api/client.js";
+import SovereigntyOverlay from "../components/SovereigntyOverlay.jsx";
 import { socket } from "../api/socket.js";
 import { SATELLITE_LAYERS, VIS_PALETTE } from "./satelliteLayers.js";
 import {
@@ -1094,6 +1095,7 @@ export default function FleetMap() {
             })}
             <FitBoundsOnLoad positions={validPositions} />
             <MapResizeHandler />
+            <SovereigntyOverlay />
 
             {vehicleList.map((v) => {
               if (v.last_latitude == null || v.last_longitude == null)
