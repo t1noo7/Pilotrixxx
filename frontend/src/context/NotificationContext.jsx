@@ -23,6 +23,7 @@ const MAX_TOASTS = 3;
 const TOAST_TTL_MS = 6000;
 
 export function NotificationProvider({ children }) {
+  const [unreadCount, setUnreadCount] = useState(0);
   const [notifPermission, setNotifPermission] = useState(() =>
     "Notification" in window ? Notification.permission : "unsupported",
   );
