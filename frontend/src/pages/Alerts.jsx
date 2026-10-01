@@ -3,14 +3,7 @@ import { apiClient } from "../api/client.js";
 import { socket } from "../api/socket.js";
 import { Link } from "react-router-dom";
 import { useNotifications } from "../context/NotificationContext.jsx";
-
-const EVENT_LABELS = {
-  hard_brake: "Phanh gấp",
-  rapid_accel: "Tăng tốc đột ngột",
-  sharp_turn: "Đánh lái gấp",
-  overspeed: "Vượt tốc độ",
-  gps_invalid: "Mất tín hiệu GPS",
-};
+import { EVENT_LABELS } from "../constants/eventLabels.js";
 
 // severity trong DB chỉ có medium/high — map sang class màu risk có sẵn
 // (high dùng màu 'dangerous' để nổi bật, vì alert high là mức nghiêm trọng nhất)
@@ -18,6 +11,7 @@ const SEVERITY_CLASS = {
   medium: "medium",
   high: "dangerous",
 };
+const PAGE_SIZE = 50;
 
 function formatTime(isoString) {
   return new Date(isoString).toLocaleString("vi-VN", {
@@ -32,20 +26,42 @@ function formatTime(isoString) {
 export default function Alerts() {
   const [alerts, setAlerts] = useState([]);
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [severity, setSeverity] = useState("");
+  const [vehicleId, setVehicleId] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [vehicles, setVehicles] = useState([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [justArrivedId, setJustArrivedId] = useState(null); // để tạo hiệu ứng nhấp nháy alert mới
   const { markAllRead } = useNotifications();
 
+  const buildParams = useCallback(
+    (extra = {}) => {
+      const params = { limit: PAGE_SIZE, ...extra };
+      if (unreadOnly) params.isRead = "false";
+      if (severity) params.severity = severity;
+      if (vehicleId) params.vehicleId = vehicleId;
+      if (dateFrom) params.from = dateFrom;
+      if (dateTo) params.to = dateTo;
+      return params;
+    },
+    [unreadOnly, severity, vehicleId, dateFrom, dateTo],
+  );
+
+  // Tải lại từ đầu (đổi filter / mở trang)
   const fetchAlerts = useCallback(
     (showLoading = false) => {
       if (showLoading) setLoading(true);
-      const params = { limit: 50 };
-      if (unreadOnly) params.isRead = "false";
-
+      setError("");
       apiClient
-        .get("/api/alerts", { params })
-        .then((res) => setAlerts(res.data))
+        .get("/api/alerts", { params: buildParams() })
+        .then((res) => {
+          setAlerts(res.data);
+          setHasMore(res.data.length === PAGE_SIZE);
+        })
         .catch((err) =>
           setError(
             err.response?.data?.error || "Không tải được danh sách cảnh báo",
@@ -53,8 +69,56 @@ export default function Alerts() {
         )
         .finally(() => setLoading(false));
     },
-    [unreadOnly],
+    [buildParams],
   );
+
+  // Alert realtime: chỉ lấy trang mới nhất rồi gộp lên đầu, KHÔNG reset
+  // các trang đã bấm "Tải thêm"
+  const fetchLatest = useCallback(() => {
+    apiClient
+      .get("/api/alerts", { params: buildParams() })
+      .then((res) => {
+        setAlerts((prev) => {
+          const ids = new Set(res.data.map((a) => a.alert_id));
+          return [...res.data, ...prev.filter((a) => !ids.has(a.alert_id))];
+        });
+      })
+      .catch(() => {});
+  }, [buildParams]);
+
+  function loadMore() {
+    if (alerts.length === 0 || loadingMore) return;
+    setLoadingMore(true);
+    apiClient
+      .get("/api/alerts", {
+        params: buildParams({ beforeId: alerts[alerts.length - 1].alert_id }),
+      })
+      .then((res) => {
+        setAlerts((prev) => [...prev, ...res.data]);
+        setHasMore(res.data.length === PAGE_SIZE);
+      })
+      .catch((err) =>
+        setError(err.response?.data?.error || "Không tải thêm được"),
+      )
+      .finally(() => setLoadingMore(false));
+  }
+
+  useEffect(() => {
+    apiClient
+      .get("/api/alerts/vehicles")
+      .then((res) => setVehicles(res.data))
+      .catch(() => {});
+  }, []);
+
+  const hasActiveFilter =
+    unreadOnly || severity || vehicleId || dateFrom || dateTo;
+  function resetFilters() {
+    setUnreadOnly(false);
+    setSeverity("");
+    setVehicleId("");
+    setDateFrom("");
+    setDateTo("");
+  }
 
   // Load lại mỗi khi đổi filter
   useEffect(() => {
@@ -65,7 +129,7 @@ export default function Alerts() {
   // Có alert mới từ Socket.IO -> gọi lại API để lấy đúng alert_id thật từ DB
   useEffect(() => {
     function handleNewAlert(payload) {
-      fetchAlerts(false);
+      fetchLatest();
       markAllRead(); // dang mo trang nay -> alert moi cung coi nhu da xem, khoi de badge tang nham
       // Đánh dấu tạm để làm hiệu ứng nhấp nháy dòng đầu (dùng vehicleId+occurredAt
       // làm khoá tạm vì chưa có alert_id thật lúc này)
@@ -75,7 +139,7 @@ export default function Alerts() {
     }
     socket.on("alert", handleNewAlert);
     return () => socket.off("alert", handleNewAlert);
-  }, [fetchAlerts, markAllRead]);
+  }, [fetchLatest, markAllRead]);
 
   function markAsRead(alertId) {
     // Cập nhật lạc quan (optimistic) trước, rollback nếu API lỗi
@@ -130,6 +194,53 @@ export default function Alerts() {
           />
         </div>
       </header>
+      <div
+        style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}
+      >
+        <select
+          value={severity}
+          onChange={(e) => setSeverity(e.target.value)}
+          style={controlStyle}
+        >
+          <option value="">Mọi mức độ</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+        </select>
+        <select
+          value={vehicleId}
+          onChange={(e) => setVehicleId(e.target.value)}
+          style={controlStyle}
+        >
+          <option value="">Mọi xe</option>
+          {vehicles.map((v) => (
+            <option key={v.vehicle_id} value={v.vehicle_id}>
+              {v.license_plate}
+            </option>
+          ))}
+        </select>
+        <input
+          type="date"
+          value={dateFrom}
+          max={dateTo || undefined}
+          onChange={(e) => setDateFrom(e.target.value)}
+          style={controlStyle}
+        />
+        <input
+          type="date"
+          value={dateTo}
+          min={dateFrom || undefined}
+          onChange={(e) => setDateTo(e.target.value)}
+          style={controlStyle}
+        />
+        {hasActiveFilter && (
+          <button
+            onClick={resetFilters}
+            style={{ ...controlStyle, cursor: "pointer" }}
+          >
+            Xoá lọc
+          </button>
+        )}
+      </div>
 
       {error && (
         <div
@@ -244,6 +355,17 @@ export default function Alerts() {
           );
         })}
       </div>
+      {hasMore && !loading && (
+        <div style={{ textAlign: "center", marginTop: 16 }}>
+          <button
+            onClick={loadMore}
+            disabled={loadingMore}
+            style={{ ...controlStyle, cursor: "pointer", padding: "8px 20px" }}
+          >
+            {loadingMore ? "Đang tải…" : "Tải thêm"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -266,3 +388,12 @@ function FilterTab({ label, active, onClick }) {
     </button>
   );
 }
+
+const controlStyle = {
+  background: "var(--bg-surface)",
+  border: "1px solid var(--border-subtle)",
+  color: "var(--text-primary)",
+  borderRadius: "var(--radius-sm)",
+  padding: "6px 10px",
+  fontSize: 13,
+};

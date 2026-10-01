@@ -9,7 +9,7 @@ export const alertsRouter = express.Router();
  * Query params: vehicleId, driverId, eventType, isRead, limit (default 50)
  */
 alertsRouter.get('/', async (req, res) => {
-    const { vehicleId, driverId, eventType, isRead, limit } = req.query;
+    const { vehicleId, driverId, eventType, isRead, severity, from, to, beforeId, limit } = req.query;
     const _limit = Math.min(parseInt(limit) || 50, 200);
 
     // Build WHERE động
@@ -17,12 +17,31 @@ alertsRouter.get('/', async (req, res) => {
     const values = [];
     let idx = 1;
 
-    if (vehicleId) { conditions.push(`a.vehicle_id = $${idx++}`);  values.push(parseInt(vehicleId)); }
-    if (driverId)  { conditions.push(`a.driver_id = $${idx++}`);   values.push(parseInt(driverId)); }
-    if (eventType) { conditions.push(`a.event_type = $${idx++}`);  values.push(eventType); }
+    if (vehicleId) { conditions.push(`a.vehicle_id = $${idx++}`); values.push(parseInt(vehicleId)); }
+    if (driverId) { conditions.push(`a.driver_id = $${idx++}`); values.push(parseInt(driverId)); }
+    if (eventType) { conditions.push(`a.event_type = $${idx++}`); values.push(eventType); }
     if (isRead !== undefined) {
         conditions.push(`a.is_read = $${idx++}`);
         values.push(isRead === 'true');
+    }
+
+    if (severity && ['high', 'medium'].includes(severity)) {
+        conditions.push(`a.severity = $${idx++}`);
+        values.push(severity);
+    }
+    const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+    if (from && DATE_RE.test(from)) {
+        conditions.push(`a.occurred_at >= ($${idx++}::date)::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh'`);
+        values.push(from);
+    }
+    if (to && DATE_RE.test(to)) {
+        conditions.push(`a.occurred_at < (($${idx++}::date + 1))::timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh'`);
+        values.push(to);
+    }
+    const _beforeId = parseInt(beforeId, 10);
+    if (!Number.isNaN(_beforeId)) {
+        conditions.push(`a.alert_id < $${idx++}`);
+        values.push(_beforeId);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -40,12 +59,31 @@ alertsRouter.get('/', async (req, res) => {
             JOIN vehicles v ON v.vehicle_id = a.vehicle_id
             JOIN drivers  d ON d.driver_id  = a.driver_id
             ${whereClause}
-            ORDER BY a.occurred_at DESC
+            ORDER BY a.alert_id DESC
             LIMIT $${idx}
         `, values);
         res.json(result.rows);
     } catch (err) {
         console.error('[GET /alerts] Error:', err.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * GET /api/alerts/vehicles
+ * Danh sách xe từng có alert - đổ dropdown filter ở trang Cảnh báo
+ */
+alertsRouter.get('/vehicles', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT DISTINCT v.vehicle_id, v.license_plate
+            FROM alerts a
+            JOIN vehicles v ON v.vehicle_id = a.vehicle_id
+            ORDER BY v.license_plate
+        `);
+        res.json(result.rows);
+    } catch (err) {
+        console.error('[GET /alerts/vehicles] Error:', err.message);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

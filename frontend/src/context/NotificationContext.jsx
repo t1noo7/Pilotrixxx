@@ -7,17 +7,9 @@ import {
   useState,
 } from "react";
 import { socket } from "../api/socket.js";
+import { EVENT_LABELS } from "../constants/eventLabels.js";
 
 const NotificationContext = createContext(null);
-
-const EVENT_LABELS = {
-  hard_brake: "Phanh gấp",
-  rapid_accel: "Tăng tốc đột ngột",
-  sharp_turn: "Đánh lái gấp",
-  overspeed: "Vượt tốc độ",
-  lane_drift: "Lấn làn",
-  gps_invalid: "Mất tín hiệu GPS",
-};
 
 const MAX_TOASTS = 3;
 const TOAST_TTL_MS = 6000;
@@ -81,8 +73,43 @@ export function NotificationProvider({ children }) {
       }
     }
 
+    function handleTripScored(payload) {
+      const id = `trip-${payload.tripId}-scored`;
+      const label = "Chuyến đi nguy hiểm";
+      const message = `Chuyến #${payload.tripId} kết thúc ở mức nguy hiểm (điểm rủi ro ${Math.round(payload.riskScore)}).`;
+
+      setToasts((prev) => {
+        const withoutDup = prev.filter((t) => t.id !== id);
+        return [
+          {
+            id,
+            tripId: payload.tripId,
+            vehicleId: payload.vehicleId,
+            label,
+            message,
+          },
+          ...withoutDup,
+        ].slice(0, MAX_TOASTS);
+      });
+
+      clearTimeout(timersRef.current[id]);
+      timersRef.current[id] = setTimeout(() => dismissToast(id), TOAST_TTL_MS);
+
+      if (
+        "Notification" in window &&
+        document.visibilityState !== "visible" &&
+        Notification.permission === "granted"
+      ) {
+        new Notification(`Cảnh báo: ${label}`, { body: message, tag: id });
+      }
+    }
+
     socket.on("alert", handleAlert);
-    return () => socket.off("alert", handleAlert);
+    socket.on("trip:scored", handleTripScored);
+    return () => {
+      socket.off("alert", handleAlert);
+      socket.off("trip:scored", handleTripScored);
+    };
   }, [dismissToast]);
 
   useEffect(() => {

@@ -13,6 +13,21 @@ const PREDICT_PY = path.resolve(__dirname, '..', '..', '..', 'ml', 'predict.py')
 // Python interpreter: dùng venv chung ở Pilotrix/venv/ (cùng cấp với backend/, ml/)
 const PYTHON = path.resolve(__dirname, '..', '..', '..', 'venv', 'bin', 'python');
 
+async function emitTripScoredIfDangerous(tripId, final) {
+    if (final?.risk_level !== 'dangerous') return;
+    try {
+        const r = await pool.query('SELECT vehicle_id FROM trips WHERE trip_id = $1', [tripId]);
+        io.emit('trip:scored', {
+            tripId,
+            vehicleId: r.rows[0]?.vehicle_id ?? null,
+            riskLevel: final.risk_level,
+            riskScore: final.risk_score,
+        });
+    } catch (e) {
+        console.error(`[ml-predict] Trip ${tripId} emit trip:scored fail:`, e.message);
+    }
+}
+
 /**
  * Gọi ML Risk Scoring qua child process Python.
  * Luôn resolve (không bao giờ reject) - lỗi được log, caller nhận null.
@@ -43,6 +58,7 @@ export function runMlPredict(tripId) {
                 } else {
                     console.log(`[ml-predict] Trip ${tripId} scored: ${result.final.risk_level} (${result.final.risk_score})`);
                     resolve(result);
+                    emitTripScoredIfDangerous(tripId, result.final); // fire-and-forget, không await
                 }
             } catch {
                 console.error(`[ml-predict] Trip ${tripId} JSON parse fail:`, stdout);
