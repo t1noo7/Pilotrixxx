@@ -16,13 +16,17 @@ import MapView, { Marker, Region, AnimatedRegion } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import {
-  sendTelemetry,
   endTrip,
   rateTrip,
   getAqiHeatmap,
   simulateLaneDrift,
   getTripRoast,
 } from "../../../src/api/driverTrips";
+import {
+  enqueueTelemetry,
+  flushTelemetry,
+  clearTelemetryQueue,
+} from "../../../src/api/telemetryQueue";
 import { WebView } from "react-native-webview";
 import { AQI_HEATMAP_HTML } from "../../../src/webview/aqiHeatmapHtml";
 import LoadingOverlay from "../../../src/components/LoadingOverlay";
@@ -521,7 +525,8 @@ export default function TripScreen() {
       const peak = accelPeakRef.current;
       const brakeIntensity = Math.min(1, peak.forwardBrake / 1.0);
 
-      sendTelemetry(tripId, {
+      enqueueTelemetry(tripId, {
+        timestamp: new Date().toISOString(),
         latitude: coords.latitude,
         longitude: coords.longitude,
         speed: coords.speed,
@@ -531,7 +536,12 @@ export default function TripScreen() {
         accelY: Math.round(peak.forwardAccel * 1000) / 1000,
         brakeIntensity: Math.round(brakeIntensity * 1000) / 1000,
       })
-        .then(({ speedLimit }) => {
+        .then(() => flushTelemetry(tripId))
+        .then((fresh) => {
+          // Chi diem "tuoi" moi tra ve ket qua - diem replay luc mat mang
+          // la qua khu, khong duoc dieu khien canh bao vuot toc do.
+          if (!fresh) return;
+          const { speedLimit } = fresh;
           const speedKmh = coords.speed != null ? coords.speed * 3.6 : null;
           const isOver =
             speedLimit != null &&
@@ -735,7 +745,11 @@ export default function TripScreen() {
             clearInterval(telemetryTimerRef.current);
           if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
           try {
+            // Day het diem con ton xuong truoc: backend chi nhan telemetry
+            // khi trip con 'ongoing', end roi la 404.
+            await flushTelemetry(tripId);
             const res = await endTrip(tripId);
+            clearTelemetryQueue(tripId);
             clearOngoingTrip();
             if (lastCoordsRef.current) {
               setLastKnownLocation({

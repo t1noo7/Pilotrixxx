@@ -516,6 +516,20 @@ driverTripsRouter.patch('/trips/:id/route-mode', async (req, res) => {
     }
 });
 
+// Chuan hoa ts cua diem telemetry tu app: tin timestamp cua app (de dedupe
+// ON CONFLICT (vehicle_id, ts) hoat dong khi retry/replay queue offline),
+// TRU KHI dong ho dien thoai lech > 60s so voi server (do bang sentAt = gio
+// dien thoai luc gui) -> bu lai chenh lech. Khong hop le -> dung gio server.
+function resolveTelemetryTs(timestamp, sentAt) {
+    const nowMs = Date.now();
+    const tsMs = Date.parse(timestamp);
+    if (!Number.isFinite(tsMs)) return new Date(nowMs).toISOString();
+    const sentAtMs = Date.parse(sentAt);
+    const skewMs = Number.isFinite(sentAtMs) ? nowMs - sentAtMs : 0;
+    const correctedMs = Math.abs(skewMs) > 60000 ? tsMs + skewMs : tsMs;
+    return new Date(correctedMs <= nowMs + 60000 ? correctedMs : nowMs).toISOString();
+}
+
 /**
  * POST /api/driver/trips/:id/telemetry
  * Body: { latitude, longitude, speed, heading, accuracy?, timestamp? }
@@ -531,7 +545,7 @@ driverTripsRouter.post('/trips/:id/telemetry', async (req, res) => {
     const tripId = parseInt(req.params.id, 10);
     if (Number.isNaN(tripId)) return res.status(400).json({ error: 'tripId không hợp lệ' });
 
-    const { latitude, longitude, speed, heading, accuracy, timestamp, accelX, accelY, brakeIntensity } = req.body;
+    const { latitude, longitude, speed, heading, accuracy, timestamp, accelX, accelY, brakeIntensity, sentAt } = req.body;
     if (latitude === undefined || longitude === undefined) {
         return res.status(400).json({ error: 'latitude và longitude là bắt buộc' });
     }
@@ -557,7 +571,7 @@ driverTripsRouter.post('/trips/:id/telemetry', async (req, res) => {
         await handleTelemetryMessage('http', {
             vehicleId,
             tripId,
-            ts: timestamp || new Date().toISOString(),
+            ts: resolveTelemetryTs(timestamp, sentAt),
             position: {
                 latitude, longitude, valid: true, satellites: null,
                 speed: speed ?? null, speedLimit, heading: heading ?? null,

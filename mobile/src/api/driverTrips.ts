@@ -38,6 +38,11 @@ export async function updateProfile(payload: {
 }
 
 export async function getCurrentTrip(): Promise<CurrentTrip | null> {
+  // Day queue telemetry offline xuong truoc: backend tu ket thuc trip neu
+  // last_telemetry_at im lang > 10 phut. import() dong de tranh vong
+  // phu thuoc driverTrips <-> telemetryQueue.
+  const { flushAllTelemetryQueues } = await import("./telemetryQueue");
+  await flushAllTelemetryQueues();
   const { data } = await apiClient.get("/api/driver/trips/current");
   return data;
 }
@@ -113,11 +118,15 @@ export async function sendTelemetry(
     accelX?: number;
     accelY?: number;
     brakeIntensity?: number;
+    timestamp?: string;
+    sentAt?: string;
   },
+  options?: { timeout?: number },
 ): Promise<{ received: boolean; speedLimit: number | null }> {
   const { data: res } = await apiClient.post(
     `/api/driver/trips/${tripId}/telemetry`,
     data,
+    { timeout: options?.timeout },
   );
   return res;
 }

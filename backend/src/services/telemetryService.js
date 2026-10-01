@@ -83,7 +83,7 @@ export async function handleTelemetryMessage(topic, payload) {
         const telemetryId = insertRes.rows[0].id;
 
         // 2. UPDATE vehicles - cache vi tri/trang thai moi nhat
-        await client.query(
+        const vehicleUpdateRes = await client.query(
             `UPDATE vehicles SET
         last_latitude = $1,
         last_longitude = $2,
@@ -92,7 +92,8 @@ export async function handleTelemetryMessage(topic, payload) {
         last_ignition_status = $5,
         last_telemetry_at = $6,
         updated_at = now()
-      WHERE vehicle_id = $7`,
+      WHERE vehicle_id = $7
+        AND (last_telemetry_at IS NULL OR last_telemetry_at <= $6)`,
             [
                 position?.latitude, position?.longitude, position?.speed,
                 position?.valid, engine?.ignitionStatus, ts,
@@ -162,7 +163,11 @@ export async function handleTelemetryMessage(topic, payload) {
         await client.query('COMMIT');
 
         try {
-            io.emit('vehicle:position', vehiclePositionPayload);
+            // Diem replay tu queue offline (cu hon last_telemetry_at) khong
+            // duoc ban len FleetMap - UPDATE o tren khong ghi thi rowCount = 0.
+            if (vehicleUpdateRes.rowCount > 0) {
+                io.emit('vehicle:position', vehiclePositionPayload);
+            }
             if (pendingTrip && driverPositionPayload) {
                 driverNamespace.to(`driver:${pendingTrip.driver_id}`).emit('vehicle:position', driverPositionPayload);
             }
