@@ -26,6 +26,8 @@ import {
   enqueueTelemetry,
   flushTelemetry,
   clearTelemetryQueue,
+  getTelemetryDebug,
+  setTelemetryForceOffline,
 } from "../../../src/api/telemetryQueue";
 import { WebView } from "react-native-webview";
 import { AQI_HEATMAP_HTML } from "../../../src/webview/aqiHeatmapHtml";
@@ -576,6 +578,19 @@ export default function TripScreen() {
     };
   }, [tripId]);
 
+  // DEV: hien trang thai queue telemetry tren man hinh.
+  const [telemetryDebug, setTelemetryDebug] = useState("");
+  const [simOffline, setSimOffline] = useState(false);
+  // Roi man hinh thi tat co offline, tranh dinh sang chuyen sau.
+  useEffect(() => () => setTelemetryForceOffline(false), []);
+  useEffect(() => {
+    if (!__DEV__ || !tripId) return;
+    const t = setInterval(async () => {
+      setTelemetryDebug(await getTelemetryDebug(tripId));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [tripId]);
+
   // Nhap nhay overlay do trong luc dang vuot toc do - dung ca khi
   // overspeedLimit doi gia tri (vd 50 -> 40 luc xe di qua khu vuc khac
   // van dang vuot) vi effect nay chi phu thuoc "co dang bat hay khong".
@@ -973,6 +988,23 @@ export default function TripScreen() {
           >
             <Text style={styles.debugChipText}>🥹 Vượt tốc</Text>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.debugChip}
+            onPress={() => {
+              const next = !simOffline;
+              setSimOffline(next);
+              setTelemetryForceOffline(next);
+            }}
+          >
+            <Text style={styles.debugChipText}>
+              {simOffline ? "📶 Bật mạng lại" : "📴 Giả lập offline"}
+            </Text>
+          </TouchableOpacity>
+
+          <View style={styles.debugChip}>
+            <Text style={styles.debugChipText}>{telemetryDebug}</Text>
+          </View>
         </View>
       )}
 
