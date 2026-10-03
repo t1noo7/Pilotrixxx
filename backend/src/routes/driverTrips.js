@@ -178,6 +178,7 @@ driverTripsRouter.get('/trips/current', async (req, res) => {
                     v.license_plate, v.model, v.vehicle_type,
                     v.last_latitude AS vehicle_latitude,
                     v.last_longitude AS vehicle_longitude,
+                    v.last_telemetry_at,
                     CASE WHEN v.last_telemetry_at > t.started_at THEN v.last_latitude ELSE NULL END AS resume_latitude,
                     CASE WHEN v.last_telemetry_at > t.started_at THEN v.last_longitude ELSE NULL END AS resume_longitude
              FROM trips t JOIN vehicles v ON v.vehicle_id = t.vehicle_id
