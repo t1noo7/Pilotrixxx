@@ -31,7 +31,12 @@ from sklearn.metrics import (
     classification_report,
     confusion_matrix,
 )
-from sklearn.model_selection import StratifiedKFold, cross_validate, train_test_split
+from sklearn.model_selection import (
+    StratifiedKFold,
+    cross_val_predict,
+    cross_validate,
+    train_test_split,
+)
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 
@@ -160,6 +165,10 @@ for cv_name, cv_estimator in [
     print(f"  {'Mean':<6}{acc_folds.mean():<12.4f}{f1_folds.mean():<12.4f}")
     print(f"  {'Std':<6}{acc_folds.std():<12.4f}{f1_folds.std():<12.4f}")
 
+    oof_pred = cross_val_predict(cv_estimator, X, y_enc, cv=skf)
+    cm_cv = confusion_matrix(y_enc, oof_pred)
+    print(f"  Confusion matrix (out-of-fold), labels={le.classes_.tolist()}")
+    print(cm_cv)
     cv_results_summary[cv_name] = {
         "accuracy_per_fold": [round(float(a), 4) for a in acc_folds],
         "accuracy_mean": round(float(acc_folds.mean()), 4),
@@ -167,6 +176,7 @@ for cv_name, cv_estimator in [
         "f1_macro_per_fold": [round(float(f), 4) for f in f1_folds],
         "f1_macro_mean": round(float(f1_folds.mean()), 4),
         "f1_macro_std": round(float(f1_folds.std()), 4),
+        "confusion_matrix_oof": cm_cv.tolist(),
     }
 
 # Lưu ra JSON riêng - để dán bảng vào báo cáo Word mà không phải chép tay

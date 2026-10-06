@@ -17,7 +17,24 @@
       0.961
     ],
     "f1_macro_mean": 0.9512,
-    "f1_macro_std": 0.0099
+    "f1_macro_std": 0.0099,
+    "confusion_matrix_oof": [
+      [
+        285,
+        15,
+        0
+      ],
+      [
+        6,
+        281,
+        13
+      ],
+      [
+        0,
+        10,
+        290
+      ]
+    ]
   },
   "Random Forest": {
     "accuracy_per_fold": [
@@ -37,6 +54,23 @@
       0.9553
     ],
     "f1_macro_mean": 0.9478,
-    "f1_macro_std": 0.0114
+    "f1_macro_std": 0.0114,
+    "confusion_matrix_oof": [
+      [
+        291,
+        9,
+        0
+      ],
+      [
+        10,
+        279,
+        11
+      ],
+      [
+        0,
+        17,
+        283
+      ]
+    ]
   }
 }
