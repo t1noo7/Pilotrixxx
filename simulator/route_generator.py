@@ -125,6 +125,8 @@ class RouteState:
 
     def _start_new_leg(self):
         """Xin OSRM 1 tuyen duong moi tu vi tri hien tai den 1 diem ngau nhien gan do."""
+        self._targeting = False
+        self.arrived_at_target = False
         leg_distance = random.uniform(LEG_DISTANCE_MIN_KM, LEG_DISTANCE_MAX_KM)
         bearing = random.uniform(0, 360)
         dest_lat, dest_lng = _destination_point(
@@ -200,10 +202,19 @@ class RouteState:
 
         # Het chang hien tai -> xin chang moi, tiep tuc tu vi tri cuoi
         if self._dist_into_leg_km >= self._cum_dist_km[-1]:
+            if self._targeting:
+                # Dang di don driver: het polyline = DA TOI. Dung han o cuoi
+                # route, KHONG xin chang ngau nhien.
+                self._dist_into_leg_km = self._cum_dist_km[-1]
+                self.arrived_at_target = True
+                self.lat, self.lng, self.heading = self._position_at(
+                    self._dist_into_leg_km
+                )
+                return self.lat, self.lng, self.heading
             leftover = self._dist_into_leg_km - self._cum_dist_km[-1]
             self.lat, self.lng, self.heading = self._position_at(self._cum_dist_km[-1])
             self._start_new_leg()
-            self._dist_into_leg_km = leftover  # giu lai phan quang duong du ra
+            self._dist_into_leg_km = leftover
 
         self.lat, self.lng, self.heading = self._position_at(self._dist_into_leg_km)
         return self.lat, self.lng, self.heading
@@ -212,6 +223,8 @@ class RouteState:
         """Ep chang tiep theo di thang ve 1 diem bat ky (thay vi chon huong
         ngau nhien) - dung khi xe can di don driver tai vi tri ho chon,
         thay cho khai niem 'depot' co dinh truoc day."""
+        self._targeting = True
+        self.arrived_at_target = False
         result = _fetch_osrm_route(self.lat, self.lng, target_lat, target_lng)
         if result is None or len(result[0]) < 2:
             coords = [(self.lat, self.lng), (target_lat, target_lng)]

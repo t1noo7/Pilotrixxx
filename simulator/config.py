@@ -82,3 +82,5 @@ SCENARIO_PARAMS = {
         "max_overspeed_ratio": 1.0,
     },
 }
+
+PICKUP_ARRIVAL_THRESHOLD_KM = 0.15

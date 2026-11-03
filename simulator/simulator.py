@@ -30,6 +30,7 @@ from config import (
     REPOSITION_ETA_MIN_FACTOR,
     REPOSITION_ETA_MAX_FACTOR,
     REPOSITION_MIN_DURATION_SECONDS,
+    PICKUP_ARRIVAL_THRESHOLD_KM,
 )
 from route_generator import RouteState
 from scenario import generate_telemetry_point, pick_speed_limit
@@ -396,14 +397,18 @@ def run_simulation(
                 target_box["reached"] = False
                 break
 
-            if (
-                heading_to_target
-                and route.distance_to_target_km(target_box["lat"], target_box["lng"])
-                < 0.05
-            ):
-                print(f"[{prefix}] Da toi noi don driver.")
-                target_box["reached"] = True
-                break
+            if heading_to_target:
+                dist_km = route.distance_to_target_km(
+                    target_box["lat"], target_box["lng"]
+                )
+                print(
+                    f"[{prefix}] [don] con cach {dist_km * 1000:.0f}m "
+                    f"(het route={route.arrived_at_target})"
+                )
+                if route.arrived_at_target or dist_km < PICKUP_ARRIVAL_THRESHOLD_KM:
+                    print(f"[{prefix}] Da toi noi don driver.")
+                    target_box["reached"] = True
+                    break
 
             point = generate_telemetry_point(scenario, speed_limit, prev_speed)
             prev_speed = point["speed"]
@@ -508,11 +513,17 @@ def run_simulation(
                 remaining = route.distance_to_target_km(
                     target_box["lat"], target_box["lng"]
                 )
-                target_box["reached"] = False
-                print(
-                    f"[{prefix}] Het thoi gian chuyen nhung chua toi noi don driver "
-                    f"(con cach {remaining:.2f}km)."
+                reached = (
+                    route.arrived_at_target or remaining < PICKUP_ARRIVAL_THRESHOLD_KM
                 )
+                target_box["reached"] = reached
+                if reached:
+                    print(f"[{prefix}] Da toi noi don driver (o tick cuoi).")
+                else:
+                    print(
+                        f"[{prefix}] Het thoi gian chuyen nhung chua toi noi don "
+                        f"driver (con cach {remaining:.2f}km)."
+                    )
 
         mqtt_client.loop_stop()
         mqtt_client.disconnect()
