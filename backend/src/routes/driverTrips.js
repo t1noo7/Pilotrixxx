@@ -736,7 +736,11 @@ function buildRoastPrompt(summary, riskLevel) {
     );
 }
 
-async function callGemini(prompt) {
+const GEMINI_RETRYABLE_STATUS = new Set([500, 503]);
+const GEMINI_MAX_RETRIES = 1;
+const GEMINI_RETRY_DELAY_MS = 1000;
+
+async function callGeminiOnce(prompt) {
     if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY chua duoc cau hinh');
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), AI_ROAST_TIMEOUT_MS);
@@ -748,21 +752,39 @@ async function callGemini(prompt) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: prompt }] }],
-                    // Tat thinking - cau roast chi la 1 cau ca khia ngan,
-                    // khong can model "suy nghi" hang nghin token an truoc
-                    // khi tra loi, gay abort oan do vuot AI_ROAST_TIMEOUT_MS.
+                    // (giu nguyen comment + generationConfig cu cua may)
                     generationConfig: { thinkingConfig: { thinkingBudget: 0 }, temperature: 1.1 },
                 }),
                 signal: controller.signal,
             }
         );
-        if (!res.ok) throw new Error(`Gemini HTTP ${res.status}`);
+        if (!res.ok) {
+            const err = new Error(`Gemini HTTP ${res.status}`);
+            err.status = res.status; // wrapper ben duoi dua vao day de quyet dinh retry
+            throw err;
+        }
         const data = await res.json();
         const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!text || !text.trim()) throw new Error('Gemini tra ve rong');
         return text.trim();
     } finally {
         clearTimeout(timeout);
+    }
+}
+
+async function callGemini(prompt) {
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await callGeminiOnce(prompt);
+        } catch (err) {
+            if (!GEMINI_RETRYABLE_STATUS.has(err.status) || attempt >= GEMINI_MAX_RETRIES) {
+                throw err;
+            }
+            console.warn(
+                `[roast] gemini HTTP ${err.status}, retry ${attempt + 1}/${GEMINI_MAX_RETRIES} sau ${GEMINI_RETRY_DELAY_MS}ms`
+            );
+            await new Promise((r) => setTimeout(r, GEMINI_RETRY_DELAY_MS));
+        }
     }
 }
 
@@ -786,7 +808,7 @@ async function callGroq(prompt) {
                 // rong nhung khong loi). reasoning_effort: low giam thinking,
                 // max_tokens tang de con du cho ca phan reasoning con lai.
                 reasoning_effort: 'low',
-                max_tokens: 300,
+                max_tokens: 1200,
                 temperature: 1.2,
             }),
             signal: controller.signal,
@@ -815,7 +837,7 @@ async function callMistral(prompt) {
             body: JSON.stringify({
                 model: 'ministral-3b-2512',
                 messages: [{ role: 'user', content: prompt }],
-                max_tokens: 120,
+                max_tokens: 600,
                 temperature: 1.0,
             }),
             signal: controller.signal,
