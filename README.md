@@ -87,14 +87,15 @@ There are two independent telemetry paths: a Python fleet simulator publishing o
 
 Invalid GPS fixes are recorded as events and suppress the other rules for that row.
 
-**2. Machine learning (per trip).** At trip end the backend builds a 13-feature summary (distance, speeds, per-minute rates of the five behaviours, overspeed ratio, GPS-invalid count, …) and classifies the trip as `safe`, `moderate` or `dangerous`. Random Forest is the primary model; Logistic Regression is the baseline.
+**2. Machine learning (per trip).** Random Forest and Logistic Regression are both trained and compared, and the backend runs both at trip end and stores both scores; the Random Forest output is used as the final score. An MLP (PyTorch) is added for comparison only and is not used by the backend.
 
-| 5-fold stratified CV (900 trips) | Accuracy       | F1-macro       |
-| -------------------------------- | -------------- | -------------- |
-| Logistic Regression              | 95.11% ± 0.96% | 95.12% ± 0.99% |
-| Random Forest                    | 94.78% ± 1.14% | 94.78% ± 1.14% |
+| 5-fold stratified CV × 3 repeats (900 trips, same folds for all models) | Accuracy       | F1-macro       |
+| ----------------------------------------------------------------------- | -------------- | -------------- |
+| Logistic Regression                                                     | 95.26% ± 0.86% | 95.27% ± 0.87% |
+| Random Forest                                                           | 94.89% ± 1.07% | 94.90% ± 1.07% |
+| MLP (PyTorch, 13-64-32-3, ~3k params)                                   | 94.89% ± 1.30% | 94.90% ± 1.31% |
 
-The two models are statistically indistinguishable on this data. Out-of-fold confusion matrices show no `safe` ↔ `dangerous` confusions; all errors are between adjacent levels. **Caveat:** the training set is _synthetic_ (900 trips from three scenarios with overlapping distributions and injected noise), so these numbers measure how well the model separates simulated scenarios, not accuracy on real drivers. Reproduce with `python ml/train.py`.
+The three models are statistically indistinguishable on this data; the MLP does not beat Logistic Regression. Out-of-fold confusion matrices show no `safe` ↔ `dangerous` confusions for any of the three models; all errors are between adjacent levels. **Caveat:** the training set is _synthetic_ (900 trips from three scenarios with overlapping distributions and injected noise), so these numbers measure how well the model separates simulated scenarios, not accuracy on real drivers. Reproduce the comparison with `python ml/mlp_cv.py --data ml/data/synthetic_trips.csv` (needs PyTorch, which is not in `ml/requirements.txt`; install it separately). Results are written to `results_mlp/mlp_cv.json`. Numbers printed by `ml/train.py` can differ slightly because it splits folds with its own seed.
 
 ## Engineering and security notes
 
@@ -106,17 +107,17 @@ The two models are statistically indistinguishable on this data. Out-of-fold con
 
 ## Tech stack
 
-| Layer          | Technology                                                                |
-| -------------- | ------------------------------------------------------------------------- |
-| Mobile         | React Native, Expo (Expo Router), TypeScript, SecureStore, AsyncStorage   |
-| Web dashboard  | React, Vite, Leaflet, Socket.IO client                                    |
-| Backend        | Node.js, Express, Socket.IO, MQTT, `pg`, JWT                              |
-| Data           | Supabase PostgreSQL and Storage                                           |
-| IoT simulation | Python, MQTT (HiveMQ Cloud), OSRM, GPX route replay                       |
-| ML             | Python, scikit-learn (Random Forest, Logistic Regression)                 |
-| GIS            | Google Earth Engine (Sentinel-5P), WAQI, IDW interpolation, OpenStreetMap |
-| Email          | Brevo HTTP API                                                            |
-| Deployment     | Render (Docker for the API, static site for the dashboard)                |
+| Layer          | Technology                                                                                |
+| -------------- | ----------------------------------------------------------------------------------------- |
+| Mobile         | React Native, Expo (Expo Router), TypeScript, SecureStore, AsyncStorage                   |
+| Web dashboard  | React, Vite, Leaflet, Socket.IO client                                                    |
+| Backend        | Node.js, Express, Socket.IO, MQTT, `pg`, JWT                                              |
+| Data           | Supabase PostgreSQL and Storage                                                           |
+| IoT simulation | Python, MQTT (HiveMQ Cloud), OSRM, GPX route replay                                       |
+| ML             | Python, scikit-learn (Random Forest, Logistic Regression), PyTorch (MLP, comparison only) |
+| GIS            | Google Earth Engine (Sentinel-5P), WAQI, IDW interpolation, OpenStreetMap                 |
+| Email          | Brevo HTTP API                                                                            |
+| Deployment     | Render (Docker for the API, static site for the dashboard)                                |
 
 ## Repository layout
 
@@ -125,7 +126,7 @@ The two models are statistically indistinguishable on this data. Out-of-fold con
 ├── backend/      Express API, MQTT consumer, rule engine, services
 ├── frontend/     Admin dashboard (React + Vite)
 ├── mobile/       Driver app (Expo / React Native)
-├── ml/           Synthetic data generator, training, prediction
+├── ml/           Synthetic data generator, training, prediction, MLP comparison
 ├── simulator/    Fleet simulator, GEE export/fetch scripts, demo route
 ├── docs/         Database schema, demo seed data, screenshots
 ├── Dockerfile    Backend image (Node + Python for ML and GEE)
